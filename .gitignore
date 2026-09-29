@@ -1,0 +1,5 @@
+# build artifact
+*.shell-extension.zip
+
+# codegraph index
+.codegraph/

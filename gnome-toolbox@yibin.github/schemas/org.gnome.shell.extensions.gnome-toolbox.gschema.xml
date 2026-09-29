@@ -1,0 +1,81 @@
+<schemalist gettext-domain="gnome-toolbox">
+  <schema id="org.gnome.shell.extensions.gnome-toolbox" path="/org/gnome/shell/extensions/gnome-toolbox/">
+    <!-- vitals panel -->
+    <key name="update-interval" type="i">
+      <default>2</default>
+      <summary>Vitals update interval</summary>
+      <description>How often (in seconds) vitals numbers refresh.</description>
+    </key>
+    <key name="show-cpu" type="b">
+      <default>true</default>
+      <summary>Show CPU load on panel</summary>
+    </key>
+    <key name="show-mem" type="b">
+      <default>true</default>
+      <summary>Show memory usage on panel</summary>
+    </key>
+    <key name="show-net" type="b">
+      <default>true</default>
+      <summary>Show network speed on panel</summary>
+    </key>
+    <key name="show-lock-keys" type="b">
+      <default>true</default>
+      <summary>Show Num/Caps Lock state on panel</summary>
+    </key>
+    <!-- clipboard -->
+    <key name="history-size" type="i">
+      <default>15</default>
+      <summary>Clipboard history size</summary>
+    </key>
+    <key name="paste-on-select" type="b">
+      <default>false</default>
+      <summary>Paste directly on select</summary>
+      <description>Simulate Shift+Insert after selecting a history entry instead of only setting the clipboard.</description>
+    </key>
+    <!-- tray (compatible with appindicator settings) -->
+    <key name="legacy-tray-enabled" type="b">
+      <default>true</default>
+      <summary>Enable legacy tray icons support</summary>
+    </key>
+    <key name="icon-saturation" type="d">
+      <default>0.0</default>
+      <summary>Saturation</summary>
+    </key>
+    <key name="icon-brightness" type="d">
+      <default>0.0</default>
+      <summary>Brightness</summary>
+    </key>
+    <key name="icon-contrast" type="d">
+      <default>0.0</default>
+      <summary>Contrast</summary>
+    </key>
+    <key name="icon-opacity" type="i">
+      <default>240</default>
+      <summary>Opacity</summary>
+    </key>
+    <key name="icon-size" type="i">
+      <default>0</default>
+      <summary>Icon size</summary>
+      <description>Icon size in pixel, 0 follows the panel size.</description>
+    </key>
+    <key name="compact-mode-enabled" type="b">
+      <default>true</default>
+      <summary>Compact Mode</summary>
+      <description>Reduces the spacing between indicators.</description>
+    </key>
+    <key name="tray-pos" type="s">
+      <default>"right"</default>
+      <summary>Position in tray</summary>
+      <description>Set where the icon tray should appear.</description>
+    </key>
+    <key name="tray-order" type="i">
+      <default>1</default>
+      <summary>Order in tray</summary>
+    </key>
+    <key name="custom-icons" type="a(sss)">
+      <default>[]</default>
+      <summary>Custom icons</summary>
+      <description>Replace any icons with custom icons from themes.</description>
+    </key>
+  </schema>
+</schemalist>

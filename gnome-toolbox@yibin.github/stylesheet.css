@@ -1,0 +1,28 @@
+.gtb-panel {
+    spacing: 8px;
+}
+
+.gtb-panel-item {
+    font-size: 0.95em;
+}
+
+.gtb-lock {
+    font-weight: bold;
+}
+
+.gtb-row-name {
+    font-weight: bold;
+    padding-right: 12px;
+}
+
+.gtb-row-value {
+    color: #bebebe;
+}
+
+.gtb-section-header {
+    font-weight: bold;
+}
+
+.gtb-dim {
+    color: #8f8f8f;
+}

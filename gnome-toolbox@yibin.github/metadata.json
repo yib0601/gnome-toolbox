@@ -1,0 +1,18 @@
+{
+    "shell-version": [
+        "45",
+        "46",
+        "47",
+        "48",
+        "49",
+        "50",
+        "51"
+    ],
+    "gettext-domain": "gnome-toolbox",
+    "settings-schema": "org.gnome.shell.extensions.gnome-toolbox",
+    "uuid": "gnome-toolbox@yibin.github",
+    "name": "GNOME Toolbox",
+    "description": "Aggregated top-bar toolbox: system vitals (CPU/memory/network/temperature/disk), Num/Caps Lock indicators, clipboard history, and AppIndicator/KStatusNotifierItem tray support.",
+    "url": "https://github.com/yibin/gnome-toolbox",
+    "version": 1
+}
