@@ -1,6 +1,5 @@
-// Clipboard history manager for GNOME Shell 51.
-// Listens to Meta selection owner changes and St.Clipboard, keeps a
-// deduplicated text history, supports set/paste.
+// Clipboard feature: text history with dedup, privacy mode, set/paste.
+// Listens to Meta selection owner changes and St.Clipboard.
 
 import Clutter from 'gi://Clutter';
 import GLib from 'gi://GLib';
@@ -8,7 +7,11 @@ import Meta from 'gi://Meta';
 import Shell from 'gi://Shell';
 import St from 'gi://St';
 
+import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as Signals from 'resource:///org/gnome/shell/misc/signals.js';
+
+import {PanelFeature} from '../core/feature.js';
+import {getVirtualKeyboard} from '../core/input.js';
 
 const TEXT_TYPES = [
     'text/plain;charset=utf-8',
@@ -18,6 +21,7 @@ const TEXT_TYPES = [
 ];
 
 const MAX_ENTRY_LENGTH = 10000;
+const CLIP_LABEL_MAX = 42;
 
 export class ClipboardManager extends Signals.EventEmitter {
     constructor(settings) {
@@ -29,7 +33,6 @@ export class ClipboardManager extends Signals.EventEmitter {
         this._privacy = false;
         this._lastContent = null;
         this._busy = false;
-        this._virtualKeyboard = null;
         this._destroyed = false;
 
         const display = Shell.Global.get().get_display();
@@ -149,27 +152,10 @@ export class ClipboardManager extends Signals.EventEmitter {
         });
     }
 
-    // See indicator.js: a virtual device must outlive mutter's asynchronous
-    // input-thread dispatch, so cache it instead of disposing after each use.
-    _getVirtualKeyboard() {
-        if (this._virtualKeyboard)
-            return this._virtualKeyboard;
-        try {
-            const backend = Clutter.get_default_backend
-                ? Clutter.get_default_backend()
-                : global.stage.get_context().get_backend();
-            const seat = backend.get_default_seat();
-            this._virtualKeyboard = seat.create_virtual_device(
-                Clutter.InputDeviceType.KEYBOARD_DEVICE);
-        } catch (e) {
-            log(`gnome-toolbox: could not create virtual keyboard: ${e.message}`);
-            this._virtualKeyboard = null;
-        }
-        return this._virtualKeyboard;
-    }
-
+    // A virtual device must outlive mutter's asynchronous input-thread
+    // dispatch, so use the shared cached device (core/input.js).
     _simulatePaste() {
-        const device = this._getVirtualKeyboard();
+        const device = getVirtualKeyboard();
         if (!device)
             return;
         try {
@@ -194,15 +180,92 @@ export class ClipboardManager extends Signals.EventEmitter {
         this._selection.disconnect(this._selectionId);
         if (this._settingsChangedId)
             this._settings.disconnect(this._settingsChangedId);
-        if (this._virtualKeyboard) {
-            const device = this._virtualKeyboard;
-            this._virtualKeyboard = null;
-            // Drain any queued input-thread dispatch before releasing.
-            GLib.timeout_add(GLib.PRIORITY_DEFAULT, 2000, () => {
-                device.run_dispose();
-                return GLib.SOURCE_REMOVE;
-            });
-        }
         this.emit('destroy');
+    }
+}
+
+export class ClipboardFeature extends PanelFeature {
+    constructor(ctx) {
+        super(ctx);
+        this._clipManager = ctx.clipboard;
+        this._clipManagerId = 0;
+        this._clipPrivacyId = 0;
+    }
+
+    get id() {
+        return 'clipboard';
+    }
+
+    get settingsKey() {
+        return 'enable-clipboard';
+    }
+
+    buildMenu(menu) {
+        const clipHeader = new PopupMenu.PopupMenuItem('剪贴板历史', {reactive: false, can_focus: false});
+        clipHeader.actor.add_style_class_name('gtb-section-header');
+        menu.addMenuItem(clipHeader);
+
+        this._privacyItem = new PopupMenu.PopupSwitchMenuItem('隐私模式', false);
+        this._privacyItem.connect('toggled', item => {
+            this._clipManager.setPrivateMode(item.state);
+        });
+        menu.addMenuItem(this._privacyItem);
+
+        this._clearItem = new PopupMenu.PopupMenuItem('清空历史');
+        this._clearItem.connect('activate', () => this._clipManager.clearHistory());
+        menu.addMenuItem(this._clearItem);
+
+        this._historySection = new PopupMenu.PopupMenuSection();
+        menu.addMenuItem(this._historySection);
+    }
+
+    enable() {
+        this._clipManagerId = this._clipManager.connect('history-changed', () =>
+            this._renderHistory());
+        this._clipPrivacyId = this._clipManager.connect('privacy-changed',
+            (_mgr, enabled) => this._privacyItem?.setToggleState(enabled));
+        this._renderHistory();
+    }
+
+    disable() {
+        if (this._clipManagerId) {
+            this._clipManager.disconnect(this._clipManagerId);
+            this._clipManagerId = 0;
+        }
+        if (this._clipPrivacyId) {
+            this._clipManager.disconnect(this._clipPrivacyId);
+            this._clipPrivacyId = 0;
+        }
+    }
+
+    _renderHistory() {
+        const section = this._historySection;
+        if (!section)
+            return;
+        section.removeAll();
+        const history = this._clipManager.history;
+        const pasteOnSelect = this.ctx.settings.get_boolean('paste-on-select');
+
+        if (!history.length) {
+            const empty = new PopupMenu.PopupMenuItem('（空）', {reactive: false, can_focus: false});
+            empty.actor.add_style_class_name('gtb-dim');
+            section.addMenuItem(empty);
+            return;
+        }
+
+        for (const entry of history) {
+            const short = entry.replace(/\s+/g, ' ').trim();
+            const label = short.length > CLIP_LABEL_MAX
+                ? `${short.slice(0, CLIP_LABEL_MAX)}…`
+                : short;
+            const item = new PopupMenu.PopupMenuItem(label);
+            item.connect('activate', () => {
+                if (pasteOnSelect)
+                    this._clipManager.paste(entry);
+                else
+                    this._clipManager.setClip(entry);
+            });
+            section.addMenuItem(item);
+        }
     }
 }

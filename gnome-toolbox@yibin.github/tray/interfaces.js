@@ -20,7 +20,7 @@ export let DBusMenu = null;
 
 // loads a xml file into an in-memory string
 function loadInterfaceXml(extension, filename) {
-    const interfacesDir = extension.dir.get_child('interfaces-xml');
+    const interfacesDir = extension.dir.get_child('tray').get_child('interfaces-xml');
     const file = interfacesDir.get_child(filename);
     const [result, contents] = imports.gi.GLib.file_get_contents(file.get_path());
 

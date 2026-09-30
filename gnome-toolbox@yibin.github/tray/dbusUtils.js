@@ -17,7 +17,7 @@
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 
-import {Logger} from './logger.js';
+import {Logger} from '../core/logger.js';
 
 export const BUS_ADDRESS_REGEX = /([a-zA-Z0-9._-]+\.[a-zA-Z0-9.-]+)|(:[0-9]+\.[0-9]+)$/;
 

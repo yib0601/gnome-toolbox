@@ -12,6 +12,27 @@
       <summary>Order inside the panel section</summary>
       <description>Lower values sit further left within the chosen section; values past the last item land on the far end.</description>
     </key>
+    <!-- feature switches (hot toggle, no logout needed) -->
+    <key name="enable-vitals" type="b">
+      <default>true</default>
+      <summary>Enable vitals monitor</summary>
+      <description>Show CPU/memory/network load on the panel and details in the menu.</description>
+    </key>
+    <key name="enable-lock-keys" type="b">
+      <default>true</default>
+      <summary>Enable Num/Caps Lock indicator</summary>
+      <description>Show lock key state on the panel with toggles in the menu.</description>
+    </key>
+    <key name="enable-clipboard" type="b">
+      <default>true</default>
+      <summary>Enable clipboard history</summary>
+      <description>Keep a text clipboard history and expose it in the menu.</description>
+    </key>
+    <key name="enable-tray" type="b">
+      <default>true</default>
+      <summary>Enable AppIndicator/StatusNotifier tray</summary>
+      <description>Claim org.kde.StatusNotifierWatcher and host indicator icons. The legacy XEmbed tray is controlled separately by legacy-tray-enabled.</description>
+    </key>
     <!-- vitals panel -->
     <key name="update-interval" type="i">
       <default>2</default>

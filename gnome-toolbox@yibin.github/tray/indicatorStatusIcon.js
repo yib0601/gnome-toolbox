@@ -26,7 +26,7 @@ import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 
 import * as AppIndicator from './appIndicator.js';
 import * as PromiseUtils from './promiseUtils.js';
-import * as SettingsManager from './settingsManager.js';
+import * as SettingsManager from '../core/settings.js';
 import * as Util from './util.js';
 import * as DBusMenu from './dbusMenu.js';
 

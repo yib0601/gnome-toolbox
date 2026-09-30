@@ -7,12 +7,12 @@ EXT="gnome-toolbox@yibin.github"
 ZIP="${EXT}.shell-extension.zip"
 rm -f "$ZIP"
 
-# Syntax-check every top-level module before packing (ESM; shell caches
-# modules, so a bad install only surfaces after a full logout/login).
+# Syntax-check every module before packing (ESM; shell caches modules, so a
+# bad install only surfaces after a full logout/login).
 if command -v node >/dev/null 2>&1; then
-    for f in "$EXT"/*.js; do
+    while IFS= read -r -d '' f; do
         node --check "$f" || { echo "SYNTAX_FAIL: $f"; exit 1; }
-    done
+    done < <(find "$EXT" -name '*.js' -print0)
 fi
 
 # Recompile the settings schema so prefs and the panel placement keys land
@@ -21,14 +21,17 @@ if command -v glib-compile-schemas >/dev/null 2>&1; then
     glib-compile-schemas --strict "$EXT/schemas" || { echo "SCHEMA_FAIL"; exit 1; }
 fi
 
-EXTRA=()
-for f in vitals.js clipboardManager.js indicator.js interfaces-xml tools \
-         appIndicator.js dbusMenu.js dbusProxy.js dbusUtils.js iconCache.js \
-         indicatorStatusIcon.js interfaces.js logger.js pixmapsUtils.js \
-         promiseUtils.js settingsManager.js statusNotifierWatcher.js \
-         trayIconsManager.js util.js; do
-    EXTRA+=(--extra-source="$f")
-done
+# Layout: core/ shared infra, features/ own capabilities, tray/ ported
+# appindicator subsystem, tools/ inside tray/. Pack by directory so new
+# files are picked up without editing this list. Note: gnome-extensions
+# pack only bundles extension.js, prefs.js and schemas/ automatically;
+# every other root-level module needs an explicit extra-source entry.
+EXTRA=(
+    --extra-source=indicator.js
+    --extra-source=core
+    --extra-source=features
+    --extra-source=tray
+)
 
 gnome-extensions pack --force "${EXTRA[@]}" "$EXT"
 gnome-extensions install --force "$ZIP"

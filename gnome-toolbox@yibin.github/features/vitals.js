@@ -1,8 +1,15 @@
-// System vitals monitor: CPU / memory / disk / network / temperature.
+// Vitals feature: CPU / memory / network on the panel, temperature and
+// disk usage in the menu. Owns its sampling timer.
 // Data sources: /proc/stat, /proc/meminfo, /proc/net/dev, sysfs thermal.
 
+import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
+import St from 'gi://St';
+
+import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
+
+import {PanelFeature} from '../core/feature.js';
 
 function readFileString(path) {
     try {
@@ -163,4 +170,128 @@ export function formatBytesStatic(kiloBytes) {
         i++;
     }
     return `${v.toFixed(v >= 100 ? 0 : 1)} ${units[i]}`;
+}
+
+export class VitalsFeature extends PanelFeature {
+    constructor(ctx) {
+        super(ctx);
+        this._sampler = new VitalsSampler();
+        this._timeoutId = 0;
+        this._settingsChangedId = 0;
+    }
+
+    get id() {
+        return 'vitals';
+    }
+
+    get settingsKey() {
+        return 'enable-vitals';
+    }
+
+    panelActors() {
+        if (!this._cpuLabel) {
+            this._cpuLabel = new St.Label({style_class: 'gtb-panel-item', y_align: Clutter.ActorAlign.CENTER});
+            this._memLabel = new St.Label({style_class: 'gtb-panel-item', y_align: Clutter.ActorAlign.CENTER});
+            this._netLabel = new St.Label({style_class: 'gtb-panel-item', y_align: Clutter.ActorAlign.CENTER});
+        }
+        return [this._cpuLabel, this._memLabel, this._netLabel];
+    }
+
+    buildMenu(menu) {
+        this._vitalsRows = {};
+        const section = new PopupMenu.PopupMenuSection();
+        const rows = [
+            ['cpu', 'CPU'],
+            ['mem', '内存'],
+            ['temp', '温度'],
+            ['disk', '磁盘'],
+            ['netDown', '下行网速'],
+            ['netUp', '上行网速'],
+        ];
+        for (const [key, title] of rows) {
+            const row = new PopupMenu.PopupMenuItem('', {reactive: false, can_focus: false});
+            // GNOME 51: St.BoxLayout has no 'expand'; use x_expand
+            const box = new St.BoxLayout({x_expand: true});
+            const nameLabel = new St.Label({text: title, style_class: 'gtb-row-name'});
+            const valueLabel = new St.Label({text: '—', style_class: 'gtb-row-value'});
+            valueLabel.x_expand = true;
+            valueLabel.x_align = Clutter.ActorAlign.END;
+            box.add_child(nameLabel);
+            box.add_child(valueLabel);
+            row.add_child(box);
+            row.label.visible = false;
+            this._vitalsRows[key] = valueLabel;
+            section.addMenuItem(row);
+        }
+        menu.addMenuItem(section);
+        menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+    }
+
+    enable() {
+        const settings = this.ctx.settings;
+        this._settingsChangedId = settings.connect('changed', (_s, key) =>
+            this._onSettingChanged(key));
+        this._onSettingChanged(null);
+        this._refresh();
+        this._startTimer();
+    }
+
+    disable() {
+        this._stopTimer();
+        if (this._settingsChangedId) {
+            this.ctx.settings.disconnect(this._settingsChangedId);
+            this._settingsChangedId = 0;
+        }
+    }
+
+    _onSettingChanged(key) {
+        const s = this.ctx.settings;
+        this._cpuLabel.visible = s.get_boolean('show-cpu');
+        this._memLabel.visible = s.get_boolean('show-mem');
+        this._netLabel.visible = s.get_boolean('show-net');
+        if (key === 'update-interval')
+            this._startTimer();
+    }
+
+    _startTimer() {
+        this._stopTimer();
+        const interval = Math.max(1, this.ctx.settings.get_int('update-interval'));
+        this._timeoutId = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT,
+            interval, () => {
+                this._refresh();
+                return GLib.SOURCE_CONTINUE;
+            });
+    }
+
+    _stopTimer() {
+        if (this._timeoutId) {
+            GLib.source_remove(this._timeoutId);
+            this._timeoutId = 0;
+        }
+    }
+
+    _refresh() {
+        const v = this._sampler.sample();
+        const rows = this._vitalsRows;
+        if (v.cpu !== null) {
+            this._cpuLabel.set_text(`${Math.round(v.cpu)}%`);
+            rows?.cpu.set_text(`${v.cpu.toFixed(1)} %`);
+        }
+        if (v.memUsedPct !== null) {
+            this._memLabel.set_text(`${Math.round(v.memUsedPct)}%`);
+            rows?.mem.set_text(
+                `${formatBytesStatic(v.memUsed)} / ${formatBytesStatic(v.memTotal)} (${v.memUsedPct.toFixed(0)}%)`);
+        }
+        if (v.netDown !== null || v.netUp !== null) {
+            const d = formatBytes(v.netDown);
+            const u = formatBytes(v.netUp);
+            this._netLabel.set_text(`↓${d} ↑${u}`);
+            rows?.netDown.set_text(d);
+            rows?.netUp.set_text(u);
+        }
+        if (v.temp !== null)
+            rows?.temp.set_text(`${v.temp.toFixed(1)} °C`);
+        if (v.diskUsedPct !== null)
+            rows?.disk.set_text(`${v.diskUsedPct.toFixed(0)} % 已用`);
+    }
 }

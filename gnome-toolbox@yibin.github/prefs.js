@@ -69,12 +69,34 @@ export default class GnomeToolboxPreferences extends ExtensionPreferences {
             icon_name: 'utilities-system-monitor-symbolic',
         });
 
+        page.add(this._switchGroup(settings));
         page.add(this._placementGroup(settings));
         page.add(this._readoutsGroup(settings));
         page.add(this._clipboardGroup(settings));
 
         window.add(page);
         window.search_enabled = true;
+    }
+
+    _switchGroup(settings) {
+        const group = new Adw.PreferencesGroup({
+            title: '功能开关',
+            description: '各功能可单独启停，改动即时生效，无需注销。',
+        });
+
+        const items = [
+            ['enable-vitals', '系统监控', '顶栏 CPU/内存/网速，菜单内温度与磁盘详情'],
+            ['enable-lock-keys', '锁定键指示', 'Num/Caps Lock 状态显示与菜单内切换'],
+            ['enable-clipboard', '剪贴板历史', '文本历史记录、隐私模式与清空'],
+            ['enable-tray', '托盘图标（AppIndicator）', '接管 StatusNotifierItem 图标；遗留 XEmbed 托盘由下方 legacy-tray-enabled 单独控制'],
+        ];
+        for (const [key, title, subtitle] of items) {
+            const row = new Adw.SwitchRow({title, subtitle});
+            bindSwitch(settings, key, row);
+            group.add(row);
+        }
+
+        return group;
     }
 
     _placementGroup(settings) {

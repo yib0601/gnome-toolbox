@@ -23,7 +23,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as Config from 'resource:///org/gnome/shell/misc/config.js';
 import * as Signals from 'resource:///org/gnome/shell/misc/signals.js';
 
-import {Logger} from './logger.js';
+import {Logger} from '../core/logger.js';
 import {BaseStatusIcon} from './indicatorStatusIcon.js';
 import {BUS_ADDRESS_REGEX} from './dbusUtils.js';
 

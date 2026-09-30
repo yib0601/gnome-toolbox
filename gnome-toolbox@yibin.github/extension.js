@@ -3,22 +3,31 @@
 // history and AppIndicator/KStatusNotifierItem tray support.
 // The tray subsystem is derived from gnome-shell-extension-appindicator
 // (GPL-2.0-or-later).
-
-import Clutter from 'gi://Clutter';
+//
+// Assembly model: every capability is a PanelFeature (core/feature.js).
+// extension.js builds the feature registry, applies the gsettings
+// enable-* switches (hot toggling via indicator.rebuild()) and owns the
+// panel placement. Features own their timers/signals; the indicator is
+// only a shell.
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 import * as Extension from 'resource:///org/gnome/shell/extensions/extension.js';
 
-import * as Interfaces from './interfaces.js';
-import * as StatusNotifierWatcher from './statusNotifierWatcher.js';
-import * as TrayIconsManager from './trayIconsManager.js';
-import * as Util from './util.js';
-import {Logger} from './logger.js';
-import {SettingsManager, getDefaultGSettings} from './settingsManager.js';
+import {Logger} from './core/logger.js';
+import {SettingsManager, getDefaultGSettings} from './core/settings.js';
+import {disposeVirtualKeyboard} from './core/input.js';
 
-import {ClipboardManager} from './clipboardManager.js';
+import * as Interfaces from './tray/interfaces.js';
+import * as TrayIconsManager from './tray/trayIconsManager.js';
+import * as Util from './tray/util.js';
+import * as StatusNotifierWatcher from './tray/statusNotifierWatcher.js';
+
 import {ToolboxIndicator} from './indicator.js';
+import {VitalsFeature} from './features/vitals.js';
+import {LockKeysFeature} from './features/lockkeys.js';
+import {ClipboardManager, ClipboardFeature} from './features/clipboard.js';
+import {TrayFeature} from './features/tray.js';
 
 const INDICATOR_ROLE = 'gnome-toolbox';
 
@@ -30,9 +39,9 @@ export default class GnomeToolboxExtension extends Extension.Extension {
         Interfaces.initialize(this);
 
         this._isEnabled = false;
-        this._statusNotifierWatcher = null;
+        this._trayFeature = null;
         this._watchDog = new Util.NameWatcher(StatusNotifierWatcher.WATCHER_BUS_NAME);
-        this._watchDog.connect('vanished', () => this._maybeEnableAfterNameAvailable());
+        this._watchDog.connect('vanished', () => this._trayFeature?.maybeClaimName());
 
         // Handle extension reload: drop the stale watchdog of the old copy.
         if (typeof global['--gnome-toolbox-on-reload'] === 'function')
@@ -45,52 +54,69 @@ export default class GnomeToolboxExtension extends Extension.Extension {
         };
     }
 
+    get isEnabled() {
+        return this._isEnabled;
+    }
+
     enable() {
         this._isEnabled = true;
 
         SettingsManager.initialize(this);
-        const settings = getDefaultGSettings();
-        this._settings = settings;
+        this._settings = getDefaultGSettings();
 
-        // ---- toolbox indicator (vitals + lock keys + clipboard) ----
-        this._clipboardManager = new ClipboardManager(settings);
+        // Clipboard history state outlives the feature wrapper (the feature
+        // only owns UI + listeners), so the manager lives on the extension.
+        this._clipboardManager = new ClipboardManager(this._settings);
 
-        let keyMap = null;
-        try {
-            // GNOME 51: Clutter.get_default_backend() was removed; reach the
-            // backend through the stage's Clutter.Context instead.
-            const backend = Clutter.get_default_backend
-                ? Clutter.get_default_backend()
-                : global.stage.get_context().get_backend();
-            keyMap = backend.get_default_seat().get_keymap();
-        } catch (e) {
-            Logger.warn(`Could not obtain keymap: ${e.message}`);
-        }
-        this._keyMap = keyMap;
+        const ctx = {
+            extension: this,
+            settings: this._settings,
+            clipboard: this._clipboardManager,
+            watchDog: this._watchDog,
+        };
+        this._features = [
+            new VitalsFeature(ctx),
+            new LockKeysFeature(ctx),
+            new ClipboardFeature(ctx),
+            new TrayFeature(ctx),
+        ];
+        this._trayFeature = this._features.find(f => f.id === 'tray');
 
-        this._indicator = new ToolboxIndicator(this, settings, this._clipboardManager);
+        this._indicator = new ToolboxIndicator(this, this._settings);
         this._placeIndicator();
-        this._indicator.start(settings, keyMap);
 
         this._placementIds = [
-            settings.connect('changed::panel-box', () => this._placeIndicator()),
-            settings.connect('changed::panel-position', () => this._placeIndicator()),
+            this._settings.connect('changed::panel-box', () => this._placeIndicator()),
+            this._settings.connect('changed::panel-position', () => this._placeIndicator()),
         ];
 
-        // ---- tray (AppIndicator / KStatusNotifierItem / legacy) ----
-        Util.tryCleanupOldIndicators();
-        this._maybeEnableAfterNameAvailable();
+        // Hot toggling: each feature reacts to its enable-* switch.
+        this._switchIds = this._features.map(f =>
+            this._settings.connect(`changed::${f.settingsKey}`,
+                () => this._applyFeatureState(f)));
+
+        for (const f of this._features)
+            this._applyFeatureState(f);
+
+        // Legacy XEmbed tray has its own sub-switch handled internally.
         TrayIconsManager.TrayIconsManager.initialize();
     }
 
     disable() {
         this._isEnabled = false;
 
-        for (const id of this._placementIds ?? []) {
-            if (this._settings)
-                this._settings.disconnect(id);
-        }
+        for (const id of this._switchIds ?? [])
+            this._settings.disconnect(id);
+        this._switchIds = [];
+
+        for (const id of this._placementIds ?? [])
+            this._settings.disconnect(id);
         this._placementIds = [];
+
+        for (const f of this._features ?? [])
+            f.destroy();
+        this._features = [];
+        this._trayFeature = null;
 
         if (this._indicator) {
             this._indicator.destroy();
@@ -102,13 +128,31 @@ export default class GnomeToolboxExtension extends Extension.Extension {
         }
 
         TrayIconsManager.TrayIconsManager.destroy();
-
-        if (this._statusNotifierWatcher !== null) {
-            this._statusNotifierWatcher.destroy();
-            this._statusNotifierWatcher = null;
-        }
-
+        disposeVirtualKeyboard();
         SettingsManager.destroy();
+    }
+
+    _activeFeatures() {
+        return this._features.filter(f =>
+            this._settings.get_boolean(f.settingsKey));
+    }
+
+    // Enable/disable one feature according to its switch. Rebuild the
+    // indicator shell around the state change so the feature sees a live
+    // UI when enabling and leaves no dead UI behind when disabling.
+    _applyFeatureState(feature) {
+        const on = this._settings.get_boolean(feature.settingsKey);
+        if (on === feature.active)
+            return;
+
+        feature.active = on;
+        if (on) {
+            this._indicator.rebuild(this._activeFeatures());
+            feature.enable();
+        } else {
+            feature.disable();
+            this._indicator.rebuild(this._activeFeatures());
+        }
     }
 
     // Move the indicator into the configured panel section. addToStatusArea()
@@ -123,18 +167,5 @@ export default class GnomeToolboxExtension extends Extension.Extension {
 
         Main.panel.statusArea[INDICATOR_ROLE] = null;
         Main.panel.addToStatusArea(INDICATOR_ROLE, this._indicator, position, box);
-    }
-
-    // When another watcher holds the bus name, wait for it to vanish before
-    // claiming it (mirrors upstream behaviour on lock-screen transitions).
-    _maybeEnableAfterNameAvailable() {
-        if (!this._isEnabled || this._statusNotifierWatcher)
-            return;
-
-        if (this._watchDog.nameAcquired && this._watchDog.nameOnBus)
-            return;
-
-        this._statusNotifierWatcher = new StatusNotifierWatcher.StatusNotifierWatcher(
-            this, this._watchDog);
     }
 }

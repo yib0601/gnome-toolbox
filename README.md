@@ -6,19 +6,39 @@ GNOME Shell 聚合工具箱插件（GNOME 51 适配），uuid: `gnome-toolbox@yi
 
 | 原插件 | 本插件对应模块 | 说明 |
 |---|---|---|
-| Vitals | `vitals.js` + `indicator.js` | 顶栏实时显示 CPU/内存占用与上下行网速；下拉菜单含温度、磁盘用量详情 |
-| Lock Keys | `extension.js` + `indicator.js` | 顶栏显示 Num/Caps Lock 状态，菜单内可直接切换 |
-| All-in-One Clipboard | `clipboardManager.js` | 剪贴板历史（去重、可点选回填/粘贴）、隐私模式、一键清空 |
-| AppIndicator Support | 移植自 `/usr/share/gnome-shell/extensions/appindicatorsupport@…`（GPL-2.0+） | StatusNotifierItem/AppIndicator/遗留托盘图标接管 |
+| Vitals | `features/vitals.js` | 顶栏实时显示 CPU/内存占用与上下行网速；下拉菜单含温度、磁盘用量详情 |
+| Lock Keys | `features/lockkeys.js` | 顶栏显示 Num/Caps Lock 状态，菜单内可直接切换 |
+| All-in-One Clipboard | `features/clipboard.js` | 剪贴板历史（去重、可点选回填/粘贴）、隐私模式、一键清空 |
+| AppIndicator Support | `tray/`（移植自 `appindicatorsupport@…`，GPL-2.0+） | StatusNotifierItem/AppIndicator/遗留托盘图标接管 |
+
+每个功能对应一个 `PanelFeature` 实现，可在设置中单独启停（`enable-*` 开关，热生效）。
 
 ## 目录结构
 
-- `extension.js` — 装配入口（Extension 基类，ESM 写法）
-- `indicator.js` — 顶栏组合指示器 + 下拉菜单
-- `vitals.js` — 数据采样（/proc、sysfs 温度、Gio 文件系统信息）
-- `clipboardManager.js` — Meta selection 监听 + St.Clipboard 历史
-- `schemas/` — GSettings schema（监控开关、刷新间隔、剪贴板条数、托盘外观）
-- 其余 `appIndicator.js`、`dbusMenu.js` 等 — 托盘子系统（原样移植）
+```
+extension.js            装配入口：feature 注册表、开关热启停、面板位置
+indicator.js            顶栏外壳（PanelMenu.Button + 顶栏 actor 条 + 共享菜单）
+core/
+  feature.js            PanelFeature 基类（所有功能实现该契约）
+  settings.js           gsettings 单例（原 settingsManager.js）
+  logger.js             结构化日志
+  input.js              共享虚拟键盘 / keymap 获取（防 use-after-free）
+features/               自研功能，一文件一 Feature
+  vitals.js             VitalsSampler 采样 + 顶栏/菜单展示
+  lockkeys.js           Num/Caps Lock 监听与切换
+  clipboard.js          ClipboardManager + 菜单展示
+  tray.js               AppIndicator 通道包装（watcher 启停）
+tray/                   移植子系统（与上游 appindicator 结构一一对应）
+  appIndicator.js dbusMenu.js dbusProxy.js dbusUtils.js iconCache.js
+  indicatorStatusIcon.js interfaces.js pixmapsUtils.js promiseUtils.js
+  statusNotifierWatcher.js trayIconsManager.js util.js
+  interfaces-xml/       DBus 接口定义
+  tools/busAnalyzer.js  独立调试脚本（gjs 运行）
+schemas/                GSettings schema
+```
+
+约定：`core/`、`features/` 为本项目代码，可自由演进；`tray/` 保持与上游
+appindicator 可比对，仅允许 import 路径等机械改动，不掺入自研逻辑。
 
 ## 构建安装
 

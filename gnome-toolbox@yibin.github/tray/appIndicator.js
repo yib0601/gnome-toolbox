@@ -30,7 +30,7 @@ import * as Util from './util.js';
 import * as Interfaces from './interfaces.js';
 import * as PixmapsUtils from './pixmapsUtils.js';
 import * as PromiseUtils from './promiseUtils.js';
-import * as SettingsManager from './settingsManager.js';
+import * as SettingsManager from '../core/settings.js';
 import {DBusProxy} from './dbusProxy.js';
 
 Gio._promisify(Gio.File.prototype, 'read_async');

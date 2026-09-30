@@ -21,7 +21,7 @@ import * as Signals from 'resource:///org/gnome/shell/misc/signals.js';
 
 import * as IndicatorStatusIcon from './indicatorStatusIcon.js';
 import * as Util from './util.js';
-import * as SettingsManager from './settingsManager.js';
+import * as SettingsManager from '../core/settings.js';
 
 let trayIconsManager;
 
