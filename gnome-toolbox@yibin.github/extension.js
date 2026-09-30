@@ -20,6 +20,8 @@ import {SettingsManager, getDefaultGSettings} from './settingsManager.js';
 import {ClipboardManager} from './clipboardManager.js';
 import {ToolboxIndicator} from './indicator.js';
 
+const INDICATOR_ROLE = 'gnome-toolbox';
+
 export default class GnomeToolboxExtension extends Extension.Extension {
     constructor(...args) {
         super(...args);
@@ -48,6 +50,7 @@ export default class GnomeToolboxExtension extends Extension.Extension {
 
         SettingsManager.initialize(this);
         const settings = getDefaultGSettings();
+        this._settings = settings;
 
         // ---- toolbox indicator (vitals + lock keys + clipboard) ----
         this._clipboardManager = new ClipboardManager(settings);
@@ -63,10 +66,16 @@ export default class GnomeToolboxExtension extends Extension.Extension {
         } catch (e) {
             Logger.warn(`Could not obtain keymap: ${e.message}`);
         }
+        this._keyMap = keyMap;
 
         this._indicator = new ToolboxIndicator(this, settings, this._clipboardManager);
-        Main.panel.addToStatusArea('gnome-toolbox', this._indicator, 0, 'right');
+        this._placeIndicator();
         this._indicator.start(settings, keyMap);
+
+        this._placementIds = [
+            settings.connect('changed::panel-box', () => this._placeIndicator()),
+            settings.connect('changed::panel-position', () => this._placeIndicator()),
+        ];
 
         // ---- tray (AppIndicator / KStatusNotifierItem / legacy) ----
         Util.tryCleanupOldIndicators();
@@ -76,6 +85,12 @@ export default class GnomeToolboxExtension extends Extension.Extension {
 
     disable() {
         this._isEnabled = false;
+
+        for (const id of this._placementIds ?? []) {
+            if (this._settings)
+                this._settings.disconnect(id);
+        }
+        this._placementIds = [];
 
         if (this._indicator) {
             this._indicator.destroy();
@@ -94,6 +109,20 @@ export default class GnomeToolboxExtension extends Extension.Extension {
         }
 
         SettingsManager.destroy();
+    }
+
+    // Move the indicator into the configured panel section. addToStatusArea()
+    // refuses a role that is already taken, and _addToPanelBox() re-parents the
+    // existing container, so releasing the role first is enough to move it.
+    _placeIndicator() {
+        if (!this._indicator || !this._settings)
+            return;
+
+        const box = this._settings.get_string('panel-box');
+        const position = this._settings.get_int('panel-position');
+
+        Main.panel.statusArea[INDICATOR_ROLE] = null;
+        Main.panel.addToStatusArea(INDICATOR_ROLE, this._indicator, position, box);
     }
 
     // When another watcher holds the bus name, wait for it to vanish before

@@ -23,6 +23,7 @@ class ToolboxIndicator extends PanelMenu.Button {
         this._settings = settings;
         this._clipManager = clipboardManager;
         this._sampler = new VitalsSampler();
+        this._virtualKeyboard = null;
         this._timeoutId = 0;
 
         // ---- top bar actor ----
@@ -56,7 +57,8 @@ class ToolboxIndicator extends PanelMenu.Button {
         ];
         for (const [key, title] of vitalsDef) {
             const row = new PopupMenu.PopupMenuItem('', {reactive: false, can_focus: false});
-            const box = new St.BoxLayout({expand: true});
+            // GNOME 51: St.BoxLayout has no 'expand'; use x_expand
+            const box = new St.BoxLayout({x_expand: true});
             const nameLabel = new St.Label({text: title, style_class: 'gtb-row-name'});
             const valueLabel = new St.Label({text: '—', style_class: 'gtb-row-value'});
             valueLabel.x_expand = true;
@@ -199,21 +201,41 @@ class ToolboxIndicator extends PanelMenu.Button {
         this._lockLabel.visible = text !== '' && this._settings.get_boolean('show-lock-keys');
     }
 
-    _setLockKey(kind, state) {
-        if (!this._keyMap)
-            return;
+    // Mutter dispatches notify_keyval() on its input thread through an idle
+    // callback, so the virtual device must stay alive well past the dispatch.
+    // Destroying it right after notifying frees the device under the input
+    // thread (use-after-free -> SIGSEGV in notify_keyval_in_impl). Keep one
+    // cached device for the whole extension lifetime instead.
+    _getVirtualKeyboard() {
+        if (this._virtualKeyboard)
+            return this._virtualKeyboard;
         try {
             const backend = Clutter.get_default_backend
                 ? Clutter.get_default_backend()
                 : global.stage.get_context().get_backend();
             const seat = backend.get_default_seat();
-            const device = seat.create_virtual_device(
+            this._virtualKeyboard = seat.create_virtual_device(
                 Clutter.InputDeviceType.KEYBOARD_DEVICE);
-            const t = Clutter.get_current_event_time() * 1000;
+        } catch (e) {
+            log(`gnome-toolbox: could not create virtual keyboard: ${e.message}`);
+            this._virtualKeyboard = null;
+        }
+        return this._virtualKeyboard;
+    }
+
+    _setLockKey(kind, state) {
+        if (!this._keyMap)
+            return;
+        const device = this._getVirtualKeyboard();
+        if (!device)
+            return;
+        try {
+            // Monotonic clock in microseconds, matching Clutter event times.
+            // Clutter.get_current_event_time() returns 0 outside an event.
+            const t = GLib.get_monotonic_time();
             const key = kind === 'num' ? Clutter.KEY_Num_Lock : Clutter.KEY_Caps_Lock;
             device.notify_keyval(t, key, Clutter.KeyState.PRESSED);
             device.notify_keyval(t + 1000, key, Clutter.KeyState.RELEASED);
-            device.run_dispose();
         } catch (e) {
             log(`gnome-toolbox: lock key toggle failed: ${e.message}`);
         }
@@ -267,6 +289,15 @@ class ToolboxIndicator extends PanelMenu.Button {
         if (this._menuActorId) {
             this.menu.actor.disconnect(this._menuActorId);
             this._menuActorId = 0;
+        }
+        if (this._virtualKeyboard) {
+            const device = this._virtualKeyboard;
+            this._virtualKeyboard = null;
+            // Drain any queued input-thread dispatch before releasing.
+            GLib.timeout_add(GLib.PRIORITY_DEFAULT, 2000, () => {
+                device.run_dispose();
+                return GLib.SOURCE_REMOVE;
+            });
         }
         super._onDestroy();
     }

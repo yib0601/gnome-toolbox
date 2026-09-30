@@ -28,7 +28,8 @@ export class VitalsSampler {
     _findThermalInput() {
         // Prefer zone named with a cpu-ish keyword, fall back to zone0.
         const candidates = [];
-        const dir = GLib.Dir.open('/sys/class/thermal');
+        // g_dir_open(path, flags, error): GJS requires the flags argument
+        const dir = GLib.Dir.open('/sys/class/thermal', 0);
         let name;
         while ((name = dir.read_name()) !== null) {
             if (!name.startsWith('thermal_zone'))

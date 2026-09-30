@@ -1,5 +1,17 @@
 <schemalist gettext-domain="gnome-toolbox">
   <schema id="org.gnome.shell.extensions.gnome-toolbox" path="/org/gnome/shell/extensions/gnome-toolbox/">
+    <!-- panel placement -->
+    <key name="panel-box" type="s">
+      <default>'right'</default>
+      <summary>Panel section</summary>
+      <description>Top bar section holding the toolbox indicator: left, center or right.</description>
+    </key>
+    <key name="panel-position" type="i">
+      <default>0</default>
+      <range min="0" max="99"/>
+      <summary>Order inside the panel section</summary>
+      <description>Lower values sit further left within the chosen section; values past the last item land on the far end.</description>
+    </key>
     <!-- vitals panel -->
     <key name="update-interval" type="i">
       <default>2</default>

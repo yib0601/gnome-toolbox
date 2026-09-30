@@ -29,6 +29,8 @@ export class ClipboardManager extends Signals.EventEmitter {
         this._privacy = false;
         this._lastContent = null;
         this._busy = false;
+        this._virtualKeyboard = null;
+        this._destroyed = false;
 
         const display = Shell.Global.get().get_display();
         this._selection = display.get_selection();
@@ -79,6 +81,8 @@ export class ClipboardManager extends Signals.EventEmitter {
         this._busy = true;
         this._clipboard.get_content(St.ClipboardType.CLIPBOARD,
             TEXT_TYPES[0], (clipboard, bytes) => {
+                if (this._destroyed)
+                    return;
                 this._busy = false;
                 if (bytes === null || bytes.get_size() === 0) {
                     settle(null);
@@ -95,7 +99,8 @@ export class ClipboardManager extends Signals.EventEmitter {
             });
         // safety: never block future updates
         const timeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 2000, () => {
-            this._busy = false;
+            if (!this._destroyed)
+                this._busy = false;
             return GLib.SOURCE_REMOVE;
         });
         void timeoutId;
@@ -138,27 +143,41 @@ export class ClipboardManager extends Signals.EventEmitter {
     paste(text) {
         this.setClip(text);
         GLib.timeout_add(GLib.PRIORITY_DEFAULT, 200, () => {
-            this._simulatePaste();
+            if (!this._destroyed)
+                this._simulatePaste();
             return GLib.SOURCE_REMOVE;
         });
     }
 
-    _simulatePaste() {
+    // See indicator.js: a virtual device must outlive mutter's asynchronous
+    // input-thread dispatch, so cache it instead of disposing after each use.
+    _getVirtualKeyboard() {
+        if (this._virtualKeyboard)
+            return this._virtualKeyboard;
         try {
-            // GNOME 51: Clutter.get_default_backend() removed, reach the
-            // backend through the stage's Clutter.Context.
             const backend = Clutter.get_default_backend
                 ? Clutter.get_default_backend()
                 : global.stage.get_context().get_backend();
             const seat = backend.get_default_seat();
-            const device = seat.create_virtual_device(
+            this._virtualKeyboard = seat.create_virtual_device(
                 Clutter.InputDeviceType.KEYBOARD_DEVICE);
-            const t = Clutter.get_current_event_time() * 1000;
+        } catch (e) {
+            log(`gnome-toolbox: could not create virtual keyboard: ${e.message}`);
+            this._virtualKeyboard = null;
+        }
+        return this._virtualKeyboard;
+    }
+
+    _simulatePaste() {
+        const device = this._getVirtualKeyboard();
+        if (!device)
+            return;
+        try {
+            const t = GLib.get_monotonic_time();
             device.notify_keyval(t, Clutter.KEY_Shift_L, Clutter.KeyState.PRESSED);
             device.notify_keyval(t + 1000, Clutter.KEY_Insert, Clutter.KeyState.PRESSED);
             device.notify_keyval(t + 2000, Clutter.KEY_Insert, Clutter.KeyState.RELEASED);
             device.notify_keyval(t + 3000, Clutter.KEY_Shift_L, Clutter.KeyState.RELEASED);
-            device.run_dispose();
         } catch (e) {
             log(`gnome-toolbox: paste simulation failed: ${e.message}`);
         }
@@ -171,9 +190,19 @@ export class ClipboardManager extends Signals.EventEmitter {
     }
 
     destroy() {
+        this._destroyed = true;
         this._selection.disconnect(this._selectionId);
         if (this._settingsChangedId)
             this._settings.disconnect(this._settingsChangedId);
+        if (this._virtualKeyboard) {
+            const device = this._virtualKeyboard;
+            this._virtualKeyboard = null;
+            // Drain any queued input-thread dispatch before releasing.
+            GLib.timeout_add(GLib.PRIORITY_DEFAULT, 2000, () => {
+                device.run_dispose();
+                return GLib.SOURCE_REMOVE;
+            });
+        }
         this.emit('destroy');
     }
 }
