@@ -1,13 +1,16 @@
-// Lock keys feature: read-only Num/Caps Lock state on the panel and in
-// the menu. Display only — this feature never toggles the lock keys.
+// Lock keys feature: read-only Num/Caps Lock state, surfaced as an OSD
+// toast when the state changes and as text rows in the menu. Display
+// only — this feature never toggles the lock keys.
 
-import Clutter from 'gi://Clutter';
-import St from 'gi://St';
+import Gio from 'gi://Gio';
 
+import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 import {PanelFeature} from '../core/feature.js';
 import {getKeymap} from '../core/input.js';
+
+const OSD_ICON = new Gio.ThemedIcon({name: 'input-keyboard-symbolic'});
 
 export class LockKeysFeature extends PanelFeature {
     constructor(ctx) {
@@ -17,6 +20,8 @@ export class LockKeysFeature extends PanelFeature {
         this._settingsChangedId = 0;
         this._numLockItem = null;
         this._capsLockItem = null;
+        // null until first successful read; suppresses a toast on enable.
+        this._lastState = {num: null, caps: null};
     }
 
     get id() {
@@ -27,14 +32,9 @@ export class LockKeysFeature extends PanelFeature {
         return 'enable-lock-keys';
     }
 
+    // No top-bar presence: state changes are announced through the OSD.
     panelActors() {
-        if (!this._lockLabel) {
-            this._lockLabel = new St.Label({
-                style_class: 'gtb-panel-item gtb-lock',
-                y_align: Clutter.ActorAlign.CENTER,
-            });
-        }
-        return [this._lockLabel];
+        return [];
     }
 
     buildMenu(menu) {
@@ -59,6 +59,7 @@ export class LockKeysFeature extends PanelFeature {
         }
         this._settingsChangedId = this.ctx.settings.connect('changed::show-lock-keys',
             () => this._updateLockState());
+        this._lastState = {num: null, caps: null};
         this._updateLockState();
     }
 
@@ -75,10 +76,8 @@ export class LockKeysFeature extends PanelFeature {
     }
 
     _updateLockState() {
-        if (!this._keyMap) {
-            this._lockLabel.visible = false;
+        if (!this._keyMap)
             return;
-        }
         let num = false;
         let caps = false;
         try {
@@ -91,9 +90,14 @@ export class LockKeysFeature extends PanelFeature {
             this._numLockItem.label.set_text(`Num Lock: ${num ? '开' : '关'}`);
         if (this._capsLockItem)
             this._capsLockItem.label.set_text(`Caps Lock: ${caps ? '开' : '关'}`);
-        const text = [num ? 'N' : '', caps ? 'C' : ''].filter(Boolean).join('');
-        this._lockLabel.set_text(text);
-        this._lockLabel.visible = text !== '' &&
-            this.ctx.settings.get_boolean('show-lock-keys');
+
+        if (this.ctx.settings.get_boolean('show-lock-keys')) {
+            const last = this._lastState;
+            if (last.num !== null && last.num !== num)
+                Main.osdWindowManager.showAll(OSD_ICON, `Num Lock ${num ? '开启' : '关闭'}`);
+            if (last.caps !== null && last.caps !== caps)
+                Main.osdWindowManager.showAll(OSD_ICON, `Caps Lock ${caps ? '开启' : '关闭'}`);
+        }
+        this._lastState = {num, caps};
     }
 }

@@ -53,7 +53,7 @@
     </key>
     <key name="show-lock-keys" type="b">
       <default>true</default>
-      <summary>Show Num/Caps Lock state on panel</summary>
+      <summary>Show Num/Caps Lock OSD toasts</summary>
     </key>
     <!-- clipboard -->
     <key name="history-size" type="i">
