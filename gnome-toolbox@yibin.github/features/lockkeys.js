@@ -1,15 +1,13 @@
-// Lock keys feature: Num/Caps Lock state on the panel, toggleable
-// switches in the menu. Uses a shared virtual keyboard device to inject
-// key events (see core/input.js for the use-after-free rationale).
+// Lock keys feature: read-only Num/Caps Lock state on the panel and in
+// the menu. Display only — this feature never toggles the lock keys.
 
 import Clutter from 'gi://Clutter';
-import GLib from 'gi://GLib';
 import St from 'gi://St';
 
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 import {PanelFeature} from '../core/feature.js';
-import {getKeymap, getVirtualKeyboard} from '../core/input.js';
+import {getKeymap} from '../core/input.js';
 
 export class LockKeysFeature extends PanelFeature {
     constructor(ctx) {
@@ -40,10 +38,14 @@ export class LockKeysFeature extends PanelFeature {
     }
 
     buildMenu(menu) {
-        this._numLockItem = new PopupMenu.PopupSwitchMenuItem('Num Lock', false);
-        this._capsLockItem = new PopupMenu.PopupSwitchMenuItem('Caps Lock', false);
-        this._numLockItem.connect('toggled', item => this._setLockKey('num', item.state));
-        this._capsLockItem.connect('toggled', item => this._setLockKey('caps', item.state));
+        // Non-reactive display rows: state is reflected by the row text,
+        // never written back to the keyboard.
+        this._numLockItem = new PopupMenu.PopupMenuItem('Num Lock: —',
+            {reactive: false, can_focus: false});
+        this._capsLockItem = new PopupMenu.PopupMenuItem('Caps Lock: —',
+            {reactive: false, can_focus: false});
+        for (const item of [this._numLockItem, this._capsLockItem])
+            item.actor.add_style_class_name('gtb-dim');
         menu.addMenuItem(this._numLockItem);
         menu.addMenuItem(this._capsLockItem);
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
@@ -85,29 +87,13 @@ export class LockKeysFeature extends PanelFeature {
         } catch (e) {
             log(`gnome-toolbox: keymap state query failed: ${e.message}`);
         }
-        this._numLockItem?.setToggleState(num);
-        this._capsLockItem?.setToggleState(caps);
+        if (this._numLockItem)
+            this._numLockItem.label.set_text(`Num Lock: ${num ? '开' : '关'}`);
+        if (this._capsLockItem)
+            this._capsLockItem.label.set_text(`Caps Lock: ${caps ? '开' : '关'}`);
         const text = [num ? 'N' : '', caps ? 'C' : ''].filter(Boolean).join('');
         this._lockLabel.set_text(text);
         this._lockLabel.visible = text !== '' &&
             this.ctx.settings.get_boolean('show-lock-keys');
-    }
-
-    _setLockKey(kind, state) {
-        if (!this._keyMap)
-            return;
-        const device = getVirtualKeyboard();
-        if (!device)
-            return;
-        try {
-            // Monotonic clock in microseconds, matching Clutter event times.
-            // Clutter.get_current_event_time() returns 0 outside an event.
-            const t = GLib.get_monotonic_time();
-            const key = kind === 'num' ? Clutter.KEY_Num_Lock : Clutter.KEY_Caps_Lock;
-            device.notify_keyval(t, key, Clutter.KeyState.PRESSED);
-            device.notify_keyval(t + 1000, key, Clutter.KeyState.RELEASED);
-        } catch (e) {
-            log(`gnome-toolbox: lock key toggle failed: ${e.message}`);
-        }
     }
 }

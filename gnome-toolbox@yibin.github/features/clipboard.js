@@ -222,8 +222,14 @@ export class ClipboardFeature extends PanelFeature {
     enable() {
         this._clipManagerId = this._clipManager.connect('history-changed', () =>
             this._renderHistory());
+        // setToggleState() re-emits 'toggled' even when unchanged; only sync
+        // when the switch actually differs, or the privacy-changed -> toggled
+        // echo feeds back into setPrivateMode and spins the main loop.
         this._clipPrivacyId = this._clipManager.connect('privacy-changed',
-            (_mgr, enabled) => this._privacyItem?.setToggleState(enabled));
+            (_mgr, enabled) => {
+                if (this._privacyItem && this._privacyItem.state !== enabled)
+                    this._privacyItem.setToggleState(enabled);
+            });
         this._renderHistory();
     }
 
