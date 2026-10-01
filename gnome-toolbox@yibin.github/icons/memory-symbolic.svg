@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <!-- RAM stick: hollow board -->
+  <path fill="#bebebe" fill-rule="evenodd" d="M1 3.5h14v8H1zM2.4 5h11.2v5H2.4z"/>
+  <!-- chips -->
+  <path fill="#bebebe" d="M3.4 6h2v3h-2zM7 6h2v3H7zM10.6 6h2v3h-2z"/>
+  <!-- bottom pins -->
+  <path fill="#bebebe" d="M2 11.8h1v1.7H2zM4.5 11.8h1v1.7h-1zM7 11.8h1v1.7H7zM9.5 11.8h1v1.7h-1zM12 11.8h1v1.7h-1z"/>
+</svg>

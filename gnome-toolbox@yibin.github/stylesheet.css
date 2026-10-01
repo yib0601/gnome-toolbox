@@ -6,6 +6,11 @@
     font-size: 0.95em;
 }
 
+.gtb-panel-icon {
+    icon-size: 14px;
+    color: #bebebe;
+}
+
 .gtb-lock {
     font-weight: bold;
 }

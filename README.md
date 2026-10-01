@@ -7,7 +7,7 @@ GNOME Shell 聚合工具箱插件（GNOME 51 适配），uuid: `gnome-toolbox@yi
 | 原插件 | 本插件对应模块 | 说明 |
 |---|---|---|
 | Vitals | `features/vitals.js` | 顶栏实时显示 CPU/内存占用与上下行网速；下拉菜单含温度、磁盘用量详情 |
-| Lock Keys | `features/lockkeys.js` | 顶栏显示 Num/Caps Lock 状态，菜单内可直接切换 |
+| Lock Keys | `features/lockkeys.js` | Num/Caps Lock 状态变化时弹出 OSD 提示 |
 | All-in-One Clipboard | `features/clipboard.js` | 剪贴板历史（去重、可点选回填/粘贴）、隐私模式、一键清空 |
 | AppIndicator Support | `tray/`（移植自 `appindicatorsupport@…`，GPL-2.0+） | StatusNotifierItem/AppIndicator/遗留托盘图标接管 |
 
@@ -25,7 +25,7 @@ core/
   input.js              共享虚拟键盘 / keymap 获取（防 use-after-free）
 features/               自研功能，一文件一 Feature
   vitals.js             VitalsSampler 采样 + 顶栏/菜单展示
-  lockkeys.js           Num/Caps Lock 监听与切换
+  lockkeys.js           Num/Caps Lock 监听与 OSD 提示
   clipboard.js          ClipboardManager + 菜单展示
   tray.js               AppIndicator 通道包装（watcher 启停）
 tray/                   移植子系统（与上游 appindicator 结构一一对应）

@@ -1,11 +1,10 @@
-// Lock keys feature: read-only Num/Caps Lock state, surfaced as an OSD
-// toast when the state changes and as text rows in the menu. Display
-// only — this feature never toggles the lock keys.
+// Lock keys feature: read-only Num/Caps Lock state, announced through an
+// OSD toast when the state changes. Display only — this feature never
+// toggles the lock keys and adds no rows to the menu.
 
 import Gio from 'gi://Gio';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
-import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 import {PanelFeature} from '../core/feature.js';
 import {getKeymap} from '../core/input.js';
@@ -18,8 +17,6 @@ export class LockKeysFeature extends PanelFeature {
         this._keyMap = null;
         this._keymapId = 0;
         this._settingsChangedId = 0;
-        this._numLockItem = null;
-        this._capsLockItem = null;
         // null until first successful read; suppresses a toast on enable.
         this._lastState = {num: null, caps: null};
     }
@@ -35,20 +32,6 @@ export class LockKeysFeature extends PanelFeature {
     // No top-bar presence: state changes are announced through the OSD.
     panelActors() {
         return [];
-    }
-
-    buildMenu(menu) {
-        // Non-reactive display rows: state is reflected by the row text,
-        // never written back to the keyboard.
-        this._numLockItem = new PopupMenu.PopupMenuItem('Num Lock: —',
-            {reactive: false, can_focus: false});
-        this._capsLockItem = new PopupMenu.PopupMenuItem('Caps Lock: —',
-            {reactive: false, can_focus: false});
-        for (const item of [this._numLockItem, this._capsLockItem])
-            item.actor.add_style_class_name('gtb-dim');
-        menu.addMenuItem(this._numLockItem);
-        menu.addMenuItem(this._capsLockItem);
-        menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
     }
 
     enable() {
@@ -86,11 +69,6 @@ export class LockKeysFeature extends PanelFeature {
         } catch (e) {
             log(`gnome-toolbox: keymap state query failed: ${e.message}`);
         }
-        if (this._numLockItem)
-            this._numLockItem.label.set_text(`Num Lock: ${num ? '开' : '关'}`);
-        if (this._capsLockItem)
-            this._capsLockItem.label.set_text(`Caps Lock: ${caps ? '开' : '关'}`);
-
         if (this.ctx.settings.get_boolean('show-lock-keys')) {
             const last = this._lastState;
             if (last.num !== null && last.num !== num)

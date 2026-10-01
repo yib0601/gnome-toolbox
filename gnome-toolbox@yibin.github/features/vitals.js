@@ -11,6 +11,19 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 import {PanelFeature} from '../core/feature.js';
 
+// Create a panel-sized symbolic icon shipped inside the extension's icons/ dir.
+function panelIcon(name) {
+    const file = Gio.File.new_for_uri(import.meta.url).get_parent()
+        .get_parent().get_child('icons').get_child(`${name}.svg`);
+    const gicon = Gio.FileIcon.new(file);
+    return new St.Icon({
+        gicon,
+        icon_size: 14,
+        style_class: 'gtb-panel-icon',
+        y_align: Clutter.ActorAlign.CENTER,
+    });
+}
+
 function readFileString(path) {
     try {
         const [ok, contents] = GLib.file_get_contents(path);
@@ -190,11 +203,23 @@ export class VitalsFeature extends PanelFeature {
 
     panelActors() {
         if (!this._cpuLabel) {
+            // Icon + value pairs live in a box so the gsettings switches
+            // hide icon and label together.
+            this._cpuBox = new St.BoxLayout({style_class: 'gtb-metric', spacing: 4});
+            this._cpuIcon = panelIcon('cpu-symbolic');
             this._cpuLabel = new St.Label({style_class: 'gtb-panel-item', y_align: Clutter.ActorAlign.CENTER});
+            this._cpuBox.add_child(this._cpuIcon);
+            this._cpuBox.add_child(this._cpuLabel);
+
+            this._memBox = new St.BoxLayout({style_class: 'gtb-metric', spacing: 4});
+            this._memIcon = panelIcon('memory-symbolic');
             this._memLabel = new St.Label({style_class: 'gtb-panel-item', y_align: Clutter.ActorAlign.CENTER});
+            this._memBox.add_child(this._memIcon);
+            this._memBox.add_child(this._memLabel);
+
             this._netLabel = new St.Label({style_class: 'gtb-panel-item', y_align: Clutter.ActorAlign.CENTER});
         }
-        return [this._cpuLabel, this._memLabel, this._netLabel];
+        return [this._cpuBox, this._memBox, this._netLabel];
     }
 
     buildMenu(menu) {
@@ -246,8 +271,8 @@ export class VitalsFeature extends PanelFeature {
 
     _onSettingChanged(key) {
         const s = this.ctx.settings;
-        this._cpuLabel.visible = s.get_boolean('show-cpu');
-        this._memLabel.visible = s.get_boolean('show-mem');
+        this._cpuBox.visible = s.get_boolean('show-cpu');
+        this._memBox.visible = s.get_boolean('show-mem');
         this._netLabel.visible = s.get_boolean('show-net');
         if (key === 'update-interval')
             this._startTimer();

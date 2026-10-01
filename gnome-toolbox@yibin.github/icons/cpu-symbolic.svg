@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <!-- chip body: hollow square -->
+  <path fill="#bebebe" fill-rule="evenodd" d="M3 3h10v10H3zM5.2 5.2h5.6v5.6H5.2z"/>
+  <!-- pins -->
+  <path fill="#bebebe" d="M5 .5h1.2v2H5zM9.8 .5h1.2v2H9.8zM5 13.5h1.2v2H5zM9.8 13.5h1.2v2H9.8zM.5 5h2v1.2h-2zM.5 9.8h2v1.2h-2zM13.5 5h2v1.2h-2zM13.5 9.8h2v1.2h-2z"/>
+</svg>

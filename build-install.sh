@@ -30,10 +30,19 @@ EXTRA=(
     --extra-source=indicator.js
     --extra-source=core
     --extra-source=features
+    --extra-source=icons
     --extra-source=tray
 )
 
 gnome-extensions pack --force "${EXTRA[@]}" "$EXT"
 gnome-extensions install --force "$ZIP"
+
+# Make sure the uuid is (re-)enabled; gnome-shell only re-runs the
+# cached module, so changed code needs a logout/login to be re-imported
+# (GJS caches ESM per URI; Wayland shell cannot be restarted in-place).
+gsettings get org.gnome.shell enabled-extensions | grep -qF "$EXT" || \
+    gsettings set org.gnome.shell enabled-extensions \
+    "$(gsettings get org.gnome.shell enabled-extensions | sed "s/]$/, '$EXT']/")"
+
 echo PACK_INSTALL_OK
-echo "NOTE: GNOME 51 不热加载扩展，需注销重新登录后新代码才生效。"
+echo "NOTE: 代码改动需注销重新登录后生效（Wayland 下 gnome-shell 无法原地重载模块）。"
