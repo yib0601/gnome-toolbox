@@ -39,7 +39,7 @@ export class TrayFeature extends PanelFeature {
     // claiming it (mirrors upstream behaviour on lock-screen transitions).
     // Also invoked from the extension's watchdog 'vanished' callback.
     maybeClaimName() {
-        if (!this.active || this._watcher || !this.ctx.isEnabled)
+        if (!this.active || this._watcher || !this.ctx.extension.isEnabled)
             return;
 
         if (this._watchDog.nameAcquired && this._watchDog.nameOnBus)
