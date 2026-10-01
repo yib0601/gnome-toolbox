@@ -153,6 +153,19 @@ export default class GnomeToolboxPreferences extends ExtensionPreferences {
         bindSpin(settings, 'history-size', sizeRow);
         group.add(sizeRow);
 
+        const maxLenRow = new Adw.SpinRow({
+            title: '单条最大长度',
+            subtitle: '超出部分截断后入库（字符数）',
+            adjustment: new Gtk.Adjustment({
+                lower: 500,
+                upper: 100000,
+                step_increment: 100,
+                page_increment: 1000,
+            }),
+        });
+        bindSpin(settings, 'max-entry-length', maxLenRow);
+        group.add(maxLenRow);
+
         const pasteRow = new Adw.SwitchRow({
             title: '选中即粘贴',
             subtitle: '选中历史条目后自动模拟 Shift+Insert，而不只是写入剪贴板',

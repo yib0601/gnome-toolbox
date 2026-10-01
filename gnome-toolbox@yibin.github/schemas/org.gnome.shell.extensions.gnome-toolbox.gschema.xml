@@ -60,6 +60,12 @@
       <default>15</default>
       <summary>Clipboard history size</summary>
     </key>
+    <key name="max-entry-length" type="i">
+      <default>10000</default>
+      <range min="500" max="100000"/>
+      <summary>Max characters per history entry</summary>
+      <description>Longer clipboard text is truncated to this many characters before being stored.</description>
+    </key>
     <key name="paste-on-select" type="b">
       <default>false</default>
       <summary>Paste directly on select</summary>

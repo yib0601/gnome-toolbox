@@ -20,7 +20,6 @@ const TEXT_TYPES = [
     'STRING',
 ];
 
-const MAX_ENTRY_LENGTH = 10000;
 const CLIP_LABEL_MAX = 42;
 
 export class ClipboardManager extends Signals.EventEmitter {
@@ -112,9 +111,8 @@ export class ClipboardManager extends Signals.EventEmitter {
     _push(text) {
         if (!text.trim())
             return;
-        const entry = text.length > MAX_ENTRY_LENGTH
-            ? text.slice(0, MAX_ENTRY_LENGTH)
-            : text;
+        const maxLen = this._settings.get_int('max-entry-length');
+        const entry = text.length > maxLen ? text.slice(0, maxLen) : text;
         const idx = this._history.indexOf(entry);
         if (idx === 0)
             return;

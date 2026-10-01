@@ -8,6 +8,7 @@ import GObject from 'gi://GObject';
 import St from 'gi://St';
 
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
+import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 export const ToolboxIndicator = GObject.registerClass(
 class ToolboxIndicator extends PanelMenu.Button {
@@ -40,6 +41,13 @@ class ToolboxIndicator extends PanelMenu.Button {
                 this._actor.add_child(actor);
             feature.buildMenu(this.menu);
         }
+
+        // Preferences entry: opens the extension settings window (panel
+        // placement, readouts, clipboard behaviour).
+        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        const prefsItem = new PopupMenu.PopupMenuItem('设置');
+        prefsItem.connect('activate', () => this._extension.openPreferences());
+        this.menu.addMenuItem(prefsItem);
 
         // Hide the button when no enabled feature shows panel actors
         // (e.g. only the tray feature is on: hosted indicators own their
