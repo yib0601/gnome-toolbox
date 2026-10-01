@@ -86,7 +86,7 @@ export default class GnomeToolboxPreferences extends ExtensionPreferences {
 
         const items = [
             ['enable-vitals', '系统监控', '顶栏 CPU/内存/网速，菜单内温度与磁盘详情'],
-            ['enable-lock-keys', '锁定键指示', 'Num/Caps Lock 状态变化时 OSD 屏显，菜单内显示当前状态'],
+            ['enable-lock-keys', '锁定键指示', '跟踪 Num/Caps Lock 状态，菜单内显示当前状态'],
             ['enable-clipboard', '剪贴板历史', '文本历史记录、隐私模式与清空'],
             ['enable-tray', '托盘图标（AppIndicator）', '接管 StatusNotifierItem 图标；遗留 XEmbed 托盘由下方 legacy-tray-enabled 单独控制'],
         ];
@@ -94,6 +94,17 @@ export default class GnomeToolboxPreferences extends ExtensionPreferences {
             const row = new Adw.SwitchRow({title, subtitle});
             bindSwitch(settings, key, row);
             group.add(row);
+            if (key === 'enable-lock-keys') {
+                // OSD toast is a sub-option of the lock-keys feature, not a
+                // top-bar readout, so it lives here instead of the readouts
+                // group.
+                const osdRow = new Adw.SwitchRow({
+                    title: '锁定键 OSD 提示',
+                    subtitle: 'Num/Caps 变化时弹出屏显提示；关闭则只在菜单里显示状态',
+                });
+                bindSwitch(settings, 'show-lock-keys', osdRow);
+                group.add(osdRow);
+            }
         }
 
         return group;
@@ -130,7 +141,6 @@ export default class GnomeToolboxPreferences extends ExtensionPreferences {
             ['show-cpu', 'CPU 占用'],
             ['show-mem', '内存占用'],
             ['show-net', '网络速率'],
-            ['show-lock-keys', 'Num/Caps Lock OSD 屏显'],
         ];
         for (const [key, title] of items) {
             const row = new Adw.SwitchRow({title});
