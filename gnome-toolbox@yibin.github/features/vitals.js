@@ -205,13 +205,14 @@ export class VitalsFeature extends PanelFeature {
         if (!this._cpuLabel) {
             // Icon + value pairs live in a box so the gsettings switches
             // hide icon and label together.
-            this._cpuBox = new St.BoxLayout({style_class: 'gtb-metric', spacing: 4});
+            // spacing 只能走 CSS：GNOME 49+ 移除了 St.BoxLayout 的 spacing 构造属性
+            this._cpuBox = new St.BoxLayout({style_class: 'gtb-metric'});
             this._cpuIcon = panelIcon('cpu-symbolic');
             this._cpuLabel = new St.Label({style_class: 'gtb-panel-item', y_align: Clutter.ActorAlign.CENTER});
             this._cpuBox.add_child(this._cpuIcon);
             this._cpuBox.add_child(this._cpuLabel);
 
-            this._memBox = new St.BoxLayout({style_class: 'gtb-metric', spacing: 4});
+            this._memBox = new St.BoxLayout({style_class: 'gtb-metric'});
             this._memIcon = panelIcon('memory-symbolic');
             this._memLabel = new St.Label({style_class: 'gtb-panel-item', y_align: Clutter.ActorAlign.CENTER});
             this._memBox.add_child(this._memIcon);

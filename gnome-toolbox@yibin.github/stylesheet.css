@@ -2,6 +2,10 @@
     spacing: 8px;
 }
 
+.gtb-metric {
+    spacing: 4px;
+}
+
 .gtb-panel-item {
     font-size: 0.95em;
 }
