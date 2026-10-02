@@ -2,11 +2,13 @@
 // Listens to Meta selection owner changes and St.Clipboard.
 
 import Clutter from 'gi://Clutter';
+import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import Meta from 'gi://Meta';
 import Shell from 'gi://Shell';
 import St from 'gi://St';
 
+import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as Signals from 'resource:///org/gnome/shell/misc/signals.js';
 
@@ -21,6 +23,10 @@ const TEXT_TYPES = [
 ];
 
 const CLIP_LABEL_MAX = 42;
+const OSD_ICON = new Gio.ThemedIcon({name: 'edit-copy-symbolic'});
+// Copies arriving within this window are treated as one copy (apps may churn
+// the clipboard ownership a few times for a single Ctrl+C).
+const OSD_DEBOUNCE_MS = 750;
 
 export class ClipboardManager extends Signals.EventEmitter {
     constructor(settings) {
@@ -33,13 +39,28 @@ export class ClipboardManager extends Signals.EventEmitter {
         this._lastContent = null;
         this._busy = false;
         this._destroyed = false;
+        this._lastCopyMs = 0;
+        // true while this manager itself writes the clipboard (setClip/paste),
+        // so the resulting owner-changed does not pop a "copied" toast
+        this._internalWrite = false;
 
         const display = Shell.Global.get().get_display();
         this._selection = display.get_selection();
         this._selectionId = this._selection.connect('owner-changed',
             (selection, selectionType) => {
-                if (selectionType === Meta.SelectionType.CLIPBOARD)
+                if (selectionType === Meta.SelectionType.SELECTION_CLIPBOARD) {
+                    // notify first, before the fetch gate: _busy can sit in
+                    // get_content for a while (slow/unresponsive clipboard
+                    // owners), and users expect a toast the moment they copy.
+                    // Throttled so selection churn does not spam toasts.
+                    const now = GLib.get_monotonic_time() / 1000;
+                    if (!this._privacy && !this._internalWrite &&
+                        now - this._lastCopyMs > OSD_DEBOUNCE_MS) {
+                        this._lastCopyMs = now;
+                        this.emit('copied');
+                    }
                     this._onSelectionChanged();
+                }
             });
 
         this._settingsChangedId = settings.connect('changed::history-size',
@@ -81,31 +102,39 @@ export class ClipboardManager extends Signals.EventEmitter {
             }
         };
         this._busy = true;
-        this._clipboard.get_content(St.ClipboardType.CLIPBOARD,
-            TEXT_TYPES[0], (clipboard, bytes) => {
-                if (this._destroyed)
-                    return;
+        // Clipboard sources offer arbitrary mime types; try the supported
+        // text types in order so copies from any app land in the history.
+        const tryType = index => {
+            if (this._destroyed || settled)
+                return;
+            if (index >= TEXT_TYPES.length) {
                 this._busy = false;
-                if (bytes === null || bytes.get_size() === 0) {
-                    settle(null);
-                    return;
-                }
-                let text = null;
-                try {
-                    text = new TextDecoder().decode(bytes.get_data());
-                } catch (e) {
-                    settle(null);
-                    return;
-                }
-                settle(text);
-            });
+                settle(null);
+                return;
+            }
+            this._clipboard.get_content(St.ClipboardType.CLIPBOARD,
+                TEXT_TYPES[index], (clipboard, bytes) => {
+                    if (this._destroyed)
+                        return;
+                    if (bytes === null || bytes.get_size() === 0) {
+                        tryType(index + 1);
+                        return;
+                    }
+                    this._busy = false;
+                    try {
+                        settle(new TextDecoder().decode(bytes.get_data()));
+                    } catch (e) {
+                        settle(null);
+                    }
+                });
+        };
+        tryType(0);
         // safety: never block future updates
-        const timeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 2000, () => {
+        GLib.timeout_add(GLib.PRIORITY_DEFAULT, 2000, () => {
             if (!this._destroyed)
                 this._busy = false;
             return GLib.SOURCE_REMOVE;
         });
-        void timeoutId;
     }
 
     _push(text) {
@@ -131,12 +160,14 @@ export class ClipboardManager extends Signals.EventEmitter {
 
     setClip(text) {
         this._busy = true;
+        this._internalWrite = true;
         this._clipboard.set_text(St.ClipboardType.CLIPBOARD, text);
         this._lastContent = text;
         this._push(text);
         // set_text triggers a selection change; re-arm after it settles
         GLib.timeout_add(GLib.PRIORITY_DEFAULT, 500, () => {
             this._busy = false;
+            this._internalWrite = false;
             return GLib.SOURCE_REMOVE;
         });
     }
@@ -188,6 +219,7 @@ export class ClipboardFeature extends PanelFeature {
         this._clipManager = ctx.clipboard;
         this._clipManagerId = 0;
         this._clipPrivacyId = 0;
+        this._clipCopiedId = 0;
     }
 
     get id() {
@@ -220,6 +252,8 @@ export class ClipboardFeature extends PanelFeature {
     enable() {
         this._clipManagerId = this._clipManager.connect('history-changed', () =>
             this._renderHistory());
+        this._clipCopiedId = this._clipManager.connect('copied',
+            () => this._showCopiedOsd());
         // setToggleState() re-emits 'toggled' even when unchanged; only sync
         // when the switch actually differs, or the privacy-changed -> toggled
         // echo feeds back into setPrivateMode and spins the main loop.
@@ -236,10 +270,20 @@ export class ClipboardFeature extends PanelFeature {
             this._clipManager.disconnect(this._clipManagerId);
             this._clipManagerId = 0;
         }
+        if (this._clipCopiedId) {
+            this._clipManager.disconnect(this._clipCopiedId);
+            this._clipCopiedId = 0;
+        }
         if (this._clipPrivacyId) {
             this._clipManager.disconnect(this._clipPrivacyId);
             this._clipPrivacyId = 0;
         }
+    }
+
+    _showCopiedOsd() {
+        if (!this.ctx.settings.get_boolean('show-clipboard-osd'))
+            return;
+        Main.osdWindowManager.showAll(OSD_ICON, '复制成功');
     }
 
     _renderHistory() {

@@ -183,6 +183,13 @@ export default class GnomeToolboxPreferences extends ExtensionPreferences {
         bindSwitch(settings, 'paste-on-select', pasteRow);
         group.add(pasteRow);
 
+        const osdRow = new Adw.SwitchRow({
+            title: '复制 OSD 提示',
+            subtitle: '复制新内容时弹出屏显提示',
+        });
+        bindSwitch(settings, 'show-clipboard-osd', osdRow);
+        group.add(osdRow);
+
         return group;
     }
 }

@@ -66,6 +66,11 @@
       <summary>Max characters per history entry</summary>
       <description>Longer clipboard text is truncated to this many characters before being stored.</description>
     </key>
+    <key name="show-clipboard-osd" type="b">
+      <default>true</default>
+      <summary>Show OSD toast on clipboard copy</summary>
+      <description>Pop an on-screen toast whenever new content lands on the clipboard.</description>
+    </key>
     <key name="paste-on-select" type="b">
       <default>false</default>
       <summary>Paste directly on select</summary>
