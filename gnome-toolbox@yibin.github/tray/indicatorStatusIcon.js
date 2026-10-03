@@ -32,6 +32,36 @@ import * as DBusMenu from './dbusMenu.js';
 
 const DEFAULT_ICON_SIZE = Panel.PANEL_ICON_SIZE || 16;
 
+// Clutter's own defaults, used only if the settings object is unreadable.
+const DEFAULT_DOUBLE_CLICK_TIME = 250;
+const DEFAULT_DOUBLE_CLICK_DISTANCE = 5;
+
+let _clutterSettings = null;
+
+// Clutter.Settings was a singleton (Clutter.Settings.get_default()) through
+// GNOME 48. GNOME 49 moved the instance onto the ClutterContext and dropped
+// that static accessor, so the call threw a TypeError straight out of
+// vfunc_button_press_event and killed every click on the tray icon before it
+// could reach the indicator's Activate method.
+function getClutterSettings() {
+    if (_clutterSettings)
+        return _clutterSettings;
+
+    if (typeof Clutter.Settings.get_default === 'function') {
+        _clutterSettings = Clutter.Settings.get_default();
+        return _clutterSettings;
+    }
+
+    try {
+        _clutterSettings = global.stage.get_context().get_settings();
+    } catch (e) {
+        Util.Logger.warn(`Could not reach ClutterContext settings: ${e.message}`);
+        _clutterSettings = new Clutter.Settings();
+    }
+
+    return _clutterSettings;
+}
+
 export function addIconToPanel(statusIcon) {
     if (!(statusIcon instanceof BaseStatusIcon))
         throw TypeError(`Unexpected icon type: ${statusIcon}`);
@@ -360,12 +390,11 @@ class IndicatorStatusIcon extends BaseStatusIcon {
     _updateClickCount(event) {
         const [x, y] = event.get_coords();
         const time = event.get_time();
-        const {doubleClickDistance, doubleClickTime} =
-            Clutter.Settings.get_default();
+        const {doubleClickTime, doubleClickDistance} = getClutterSettings();
 
-        if (time > (this._lastClickTime + doubleClickTime) ||
-            (Math.abs(x - this._lastClickX) > doubleClickDistance) ||
-            (Math.abs(y - this._lastClickY) > doubleClickDistance))
+        if (time > (this._lastClickTime + (doubleClickTime ?? DEFAULT_DOUBLE_CLICK_TIME)) ||
+            (Math.abs(x - this._lastClickX) > (doubleClickDistance ?? DEFAULT_DOUBLE_CLICK_DISTANCE)) ||
+            (Math.abs(y - this._lastClickY) > (doubleClickDistance ?? DEFAULT_DOUBLE_CLICK_DISTANCE)))
             this._clickCount = 0;
 
         this._lastClickTime = time;
@@ -392,10 +421,28 @@ class IndicatorStatusIcon extends BaseStatusIcon {
         return Clutter.EVENT_PROPAGATE;
     }
 
+    // ItemIsMenu=false advertises a real "activate the application" action
+    // (WeChat, and most desktop chat clients). For those, a single primary
+    // click is the activation gesture; the double-click-to-open heuristic
+    // below only exists for legacy items that never declare the property.
+    _activateOnPrimaryClick(event) {
+        if (this._indicator.supportsActivation === false)
+            return false;
+
+        if (event.get_button() !== Clutter.BUTTON_PRIMARY)
+            return false;
+
+        if (this._indicator.itemIsMenu !== false)
+            return false;
+
+        this._indicator.open(...event.get_coords(), event.get_time());
+        return true;
+    }
+
     async _waitForDoubleClick() {
-        const {doubleClickTime} = Clutter.Settings.get_default();
+        const {doubleClickTime} = getClutterSettings();
         this._waitDoubleClickPromise = new PromiseUtils.TimeoutPromise(
-            doubleClickTime);
+            doubleClickTime ?? DEFAULT_DOUBLE_CLICK_TIME);
 
         try {
             await this._waitDoubleClickPromise;
@@ -431,6 +478,9 @@ class IndicatorStatusIcon extends BaseStatusIcon {
             this.menu.toggle();
             return Clutter.EVENT_PROPAGATE;
         }
+
+        if (this._activateOnPrimaryClick(event))
+            return Clutter.EVENT_STOP;
 
         const doubleClickHandled = this._maybeHandleDoubleClick(event);
         if (doubleClickHandled === Clutter.EVENT_PROPAGATE &&

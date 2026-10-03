@@ -580,6 +580,16 @@ export class AppIndicator extends Signals.EventEmitter {
         return this._proxy.Menu;
     }
 
+    get itemIsMenu() {
+        // StatusNotifierItem spec: ItemIsMenu=true means the item is nothing
+        // but a menu trigger, so Activate carries no meaning. false means the
+        // item intends a plain click to activate the application (WeChat sets
+        // false while still exporting a Menu for right-click).
+        // Apps that never export the property leave this undefined, and the
+        // caller keeps its double-click heuristic for them.
+        return this._proxy.ItemIsMenu;
+    }
+
     get attentionIcon() {
         return {
             theme: this._proxy.IconThemePath,
