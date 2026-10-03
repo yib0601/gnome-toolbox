@@ -155,9 +155,23 @@ export class StatusNotifierWatcher {
         // handling the memory of the bus analyzer async code).
         const cancellable = this._cancellable;
         await new PromiseUtils.TimeoutSecondsPromise(2, GLib.PRIORITY_LOW, cancellable);
-        const busAnalyzer = GLib.build_filenamev([
-            extension.path, 'tools', 'busAnalyzer.js',
-        ]);
+        // Resolve tools/busAnalyzer.js relative to this module instead of
+        // extension.path: upstream keeps tools/ at the extension root, this
+        // port moved it under tray/, so a root-relative path silently broke
+        // the brute-force scan for indicators that never re-register.
+        let busAnalyzer = null;
+        try {
+            busAnalyzer = Gio.File.new_for_uri(import.meta.url)
+                .get_parent().get_child('tools').get_child('busAnalyzer.js')
+                .get_path();
+        } catch (e) {
+            Util.Logger.debug(`Could not resolve module dir: ${e.message}`);
+        }
+        if (!busAnalyzer || !GLib.file_test(busAnalyzer, GLib.FileTest.EXISTS)) {
+            busAnalyzer = GLib.build_filenamev([
+                extension.path, 'tray', 'tools', 'busAnalyzer.js',
+            ]);
+        }
 
         const subProcess = Gio.Subprocess.new(['gjs', '-m', busAnalyzer],
             Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE);
