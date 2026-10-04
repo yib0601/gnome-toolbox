@@ -85,7 +85,7 @@ export default class GnomeToolboxPreferences extends ExtensionPreferences {
         });
 
         const items = [
-            ['enable-vitals', '系统监控', '顶栏 CPU/内存/网速，菜单内温度与磁盘详情'],
+            ['enable-vitals', '系统监控', '顶栏 CPU/内存/网速，菜单内温度、磁盘与网速详情'],
             ['enable-lock-keys', '锁定键指示', '跟踪 Num/Caps Lock 状态，变化时弹出 OSD 提示'],
             ['enable-clipboard', '剪贴板历史', '文本历史记录、隐私模式与清空'],
             ['enable-tray', '托盘图标（AppIndicator）', '接管 StatusNotifierItem 图标；遗留 XEmbed 托盘由下方 legacy-tray-enabled 单独控制'],
@@ -134,7 +134,7 @@ export default class GnomeToolboxPreferences extends ExtensionPreferences {
     _readoutsGroup(settings) {
         const group = new Adw.PreferencesGroup({
             title: '顶栏读数',
-            description: '关闭某项后它仍会出现在下拉菜单里详列。',
+            description: '关闭某项后顶栏不再显示该项（CPU/内存不再重复出现在下拉菜单里）。',
         });
 
         const items = [

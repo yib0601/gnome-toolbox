@@ -172,19 +172,6 @@ export function formatBytes(bytesPerSec) {
     return `${v.toFixed(v >= 100 ? 0 : 1)} ${units[i]}`;
 }
 
-export function formatBytesStatic(kiloBytes) {
-    if (kiloBytes === null || Number.isNaN(kiloBytes))
-        return '—';
-    const units = ['KiB', 'MiB', 'GiB'];
-    let v = kiloBytes;
-    let i = 0;
-    while (v >= 1024 && i < units.length - 1) {
-        v /= 1024;
-        i++;
-    }
-    return `${v.toFixed(v >= 100 ? 0 : 1)} ${units[i]}`;
-}
-
 export class VitalsFeature extends PanelFeature {
     constructor(ctx) {
         super(ctx);
@@ -226,9 +213,9 @@ export class VitalsFeature extends PanelFeature {
     buildMenu(menu) {
         this._vitalsRows = {};
         const section = new PopupMenu.PopupMenuSection();
+        // CPU and memory are panel-only now: the top bar already carries
+        // them, so the menu keeps just the readouts without a panel twin.
         const rows = [
-            ['cpu', 'CPU'],
-            ['mem', '内存'],
             ['temp', '温度'],
             ['disk', '磁盘'],
             ['netDown', '下行网速'],
@@ -299,15 +286,10 @@ export class VitalsFeature extends PanelFeature {
     _refresh() {
         const v = this._sampler.sample();
         const rows = this._vitalsRows;
-        if (v.cpu !== null) {
+        if (v.cpu !== null)
             this._cpuLabel.set_text(`${Math.round(v.cpu)}%`);
-            rows?.cpu.set_text(`${v.cpu.toFixed(1)} %`);
-        }
-        if (v.memUsedPct !== null) {
+        if (v.memUsedPct !== null)
             this._memLabel.set_text(`${Math.round(v.memUsedPct)}%`);
-            rows?.mem.set_text(
-                `${formatBytesStatic(v.memUsed)} / ${formatBytesStatic(v.memTotal)} (${v.memUsedPct.toFixed(0)}%)`);
-        }
         if (v.netDown !== null || v.netUp !== null) {
             const d = formatBytes(v.netDown);
             const u = formatBytes(v.netUp);
