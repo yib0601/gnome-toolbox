@@ -33,6 +33,22 @@
       <summary>Enable AppIndicator/StatusNotifier tray</summary>
       <description>Claim org.kde.StatusNotifierWatcher and host indicator icons. The legacy XEmbed tray is controlled separately by legacy-tray-enabled.</description>
     </key>
+    <key name="enable-notification-autohide" type="b">
+      <default>true</default>
+      <summary>Enable notification auto-hide</summary>
+      <description>Tear down a notification banner after a countdown instead of leaving it on the top bar. The notification itself is kept and moves into the calendar notification list.</description>
+    </key>
+    <key name="notification-hide-delay" type="i">
+      <default>6</default>
+      <range min="1" max="120"/>
+      <summary>Banner auto-hide delay</summary>
+      <description>Seconds a notification banner stays fully shown before it is collapsed into the notification list.</description>
+    </key>
+    <key name="auto-hide-critical-notifications" type="b">
+      <default>false</default>
+      <summary>Auto-hide critical notifications too</summary>
+      <description>By default critical-urgency notifications keep their banner until dismissed by hand.</description>
+    </key>
     <!-- vitals panel -->
     <key name="update-interval" type="i">
       <default>2</default>

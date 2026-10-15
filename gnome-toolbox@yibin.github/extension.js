@@ -28,6 +28,7 @@ import {VitalsFeature} from './features/vitals.js';
 import {LockKeysFeature} from './features/lockkeys.js';
 import {ClipboardManager, ClipboardFeature} from './features/clipboard.js';
 import {TrayFeature} from './features/tray.js';
+import {NotificationAutoHideFeature} from './features/notifications.js';
 
 const INDICATOR_ROLE = 'gnome-toolbox';
 
@@ -79,6 +80,7 @@ export default class GnomeToolboxExtension extends Extension.Extension {
             new LockKeysFeature(ctx),
             new ClipboardFeature(ctx),
             new TrayFeature(ctx),
+            new NotificationAutoHideFeature(ctx),
         ];
         this._trayFeature = this._features.find(f => f.id === 'tray');
 
@@ -107,11 +109,11 @@ export default class GnomeToolboxExtension extends Extension.Extension {
 
         for (const id of this._switchIds ?? [])
             this._settings.disconnect(id);
-        this._switchIds = [];
+        this._switchIds.length = 0;
 
         for (const id of this._placementIds ?? [])
             this._settings.disconnect(id);
-        this._placementIds = [];
+        this._placementIds.length = 0;
 
         for (const f of this._features ?? [])
             f.destroy();

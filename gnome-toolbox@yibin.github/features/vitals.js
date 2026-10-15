@@ -213,13 +213,12 @@ export class VitalsFeature extends PanelFeature {
     buildMenu(menu) {
         this._vitalsRows = {};
         const section = new PopupMenu.PopupMenuSection();
-        // CPU and memory are panel-only now: the top bar already carries
-        // them, so the menu keeps just the readouts without a panel twin.
+        // Panel-only readouts stay off the menu: CPU, memory and both network
+        // speeds already sit on the top bar, so the menu keeps just the two
+        // values with no panel twin.
         const rows = [
             ['temp', '温度'],
             ['disk', '磁盘'],
-            ['netDown', '下行网速'],
-            ['netUp', '上行网速'],
         ];
         for (const [key, title] of rows) {
             const row = new PopupMenu.PopupMenuItem('', {reactive: false, can_focus: false});
@@ -294,8 +293,6 @@ export class VitalsFeature extends PanelFeature {
             const d = formatBytes(v.netDown);
             const u = formatBytes(v.netUp);
             this._netLabel.set_text(`↓${d} ↑${u}`);
-            rows?.netDown.set_text(d);
-            rows?.netUp.set_text(u);
         }
         if (v.temp !== null)
             rows?.temp.set_text(`${v.temp.toFixed(1)} °C`);

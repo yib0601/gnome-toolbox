@@ -73,6 +73,7 @@ export default class GnomeToolboxPreferences extends ExtensionPreferences {
         page.add(this._placementGroup(settings));
         page.add(this._readoutsGroup(settings));
         page.add(this._clipboardGroup(settings));
+        page.add(this._notificationGroup(settings));
 
         window.add(page);
         window.search_enabled = true;
@@ -85,7 +86,7 @@ export default class GnomeToolboxPreferences extends ExtensionPreferences {
         });
 
         const items = [
-            ['enable-vitals', '系统监控', '顶栏 CPU/内存/网速，菜单内温度、磁盘与网速详情'],
+            ['enable-vitals', '系统监控', '顶栏 CPU/内存/网速，菜单内温度与磁盘用量'],
             ['enable-lock-keys', '锁定键指示', '跟踪 Num/Caps Lock 状态，变化时弹出 OSD 提示'],
             ['enable-clipboard', '剪贴板历史', '文本历史记录、隐私模式与清空'],
             ['enable-tray', '托盘图标（AppIndicator）', '接管 StatusNotifierItem 图标；遗留 XEmbed 托盘由下方 legacy-tray-enabled 单独控制'],
@@ -134,7 +135,7 @@ export default class GnomeToolboxPreferences extends ExtensionPreferences {
     _readoutsGroup(settings) {
         const group = new Adw.PreferencesGroup({
             title: '顶栏读数',
-            description: '关闭某项后顶栏不再显示该项（CPU/内存不再重复出现在下拉菜单里）。',
+            description: '关闭某项后顶栏不再显示该项；顶栏已有的读数不会重复出现在下拉菜单里。',
         });
 
         const items = [
@@ -191,5 +192,48 @@ export default class GnomeToolboxPreferences extends ExtensionPreferences {
         group.add(osdRow);
 
         return group;
+    }
+
+    _notificationGroup(settings) {
+        const group = new Adw.PreferencesGroup({
+            title: '通知',
+            description: '气泡通知在顶栏停留的时间。收起后通知进入顶部日历的通知列表，不会被丢弃；鼠标停在气泡上时推迟收起，移开后重新计时。',
+        });
+
+        const delayRow = spinRow('收起延迟（秒）', '气泡完整显示多久后自动收起',
+            1, 120);
+        bindSpin(settings, 'notification-hide-delay', delayRow);
+
+        const criticalRow = new Adw.SwitchRow({
+            title: '同时收起紧急通知',
+            subtitle: '紧急（critical）通知默认常驻顶栏，直到手动关闭',
+        });
+        bindSwitch(settings, 'auto-hide-critical-notifications', criticalRow);
+
+        // Sub-options of the switch below: kept next to it and greyed out while
+        // the feature itself is off.
+        const masterRow = new Adw.SwitchRow({
+            title: '通知定时关闭',
+            subtitle: '气泡通知倒计时结束后自动收起，收进顶部日历的通知列表',
+        });
+        bindSwitch(settings, 'enable-notification-autohide', masterRow);
+        group.add(masterRow);
+        group.add(delayRow);
+        group.add(criticalRow);
+        this._followSwitch(settings, masterRow, [delayRow, criticalRow]);
+
+        return group;
+    }
+
+    // Rows that only make sense while another switch is on: disabled (which
+    // greys them out) whenever the switch is off.
+    _followSwitch(settings, masterRow, rows) {
+        const apply = () => {
+            for (const row of rows)
+                row.sensitive = masterRow.active;
+        };
+        masterRow.connect('notify::active', apply);
+        settings.connect('changed::enable-notification-autohide', apply);
+        apply();
     }
 }
