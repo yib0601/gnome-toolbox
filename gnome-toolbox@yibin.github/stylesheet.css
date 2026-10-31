@@ -35,3 +35,10 @@
 .gtb-dim {
     color: #8f8f8f;
 }
+
+/* Clipboard image entries: small square thumbnail before the pixel-size label */
+.gtb-clip-thumb {
+    icon-size: 32px;
+    margin-right: 12px;
+    border-radius: 4px;
+}

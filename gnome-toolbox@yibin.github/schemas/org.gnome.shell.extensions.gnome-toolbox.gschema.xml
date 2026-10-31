@@ -92,6 +92,28 @@
       <summary>Paste directly on select</summary>
       <description>Simulate Shift+Insert after selecting a history entry instead of only setting the clipboard.</description>
     </key>
+    <key name="history-include-images" type="b">
+      <default>true</default>
+      <summary>Keep images in the history</summary>
+      <description>Store copied images alongside text. Screenshots only ever publish image/* mimetypes, so without this they are never recorded.</description>
+    </key>
+    <!-- clipboard: screenshot format normalization (WeChat Alt+A declares
+         image/png but ships BMP bytes under every image mimetype it offers) -->
+    <key name="normalize-screenshots" type="b">
+      <default>true</default>
+      <summary>Normalize screenshots to real PNG</summary>
+      <description>Rewrite clipboard images that declare an image mimetype but carry other bytes into genuine PNG, so pasting into apps that trust the declared type works.</description>
+    </key>
+    <key name="normalize-shortcut" type="as">
+      <default><![CDATA[['<Control><Alt>v']]]></default>
+      <summary>Normalize-now shortcut</summary>
+      <description>Key combination that converts the current clipboard image in place. Empty list disables the shortcut.</description>
+    </key>
+    <key name="normalize-on-copy" type="b">
+      <default>false</default>
+      <summary>Normalize automatically on copy</summary>
+      <description>Convert a mislabelled screenshot the moment it lands on the clipboard, without pressing the shortcut. Takes over clipboard ownership right after the capturer writes it.</description>
+    </key>
     <!-- tray (compatible with appindicator settings) -->
     <key name="legacy-tray-enabled" type="b">
       <default>true</default>

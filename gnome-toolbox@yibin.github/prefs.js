@@ -2,7 +2,8 @@
 // which readouts show up, and clipboard behaviour.
 
 import Adw from 'gi://Adw';
-import Gtk from 'gi://Gtk';
+import Gdk from 'gi://Gdk?version=4.0';
+import Gtk from 'gi://Gtk?version=4.0';
 
 import {ExtensionPreferences} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
@@ -60,6 +61,93 @@ function spinRow(title, subtitle, lower, upper) {
     });
 }
 
+// Key-capture row for an `as` accelerator key. Adw.EntryRow gives the
+// "labelled field with a clear button" look for free; the entry stays editable
+// (a non-editable entry is not focusable and would never see a key press) but
+// every key is stopped in the CAPTURE phase before the text machinery runs, so
+// nothing ever gets typed into it.
+function shortcutRow(settings, key, title, subtitle) {
+    const row = new Adw.EntryRow({title});
+    if (subtitle)
+        row.tooltip_text = subtitle;
+
+    // Show the stored accelerator in canonical form (the schema could hold
+    // any spelling GLib accepts, e.g. <Ctrl><Alt>v).
+    const setLabel = () => {
+        const [accel] = settings.get_strv(key);
+        if (!accel) {
+            row.text = '';
+            return;
+        }
+        const [ok, keyval, mods] = Gtk.accelerator_parse(accel);
+        row.text = ok ? Gtk.accelerator_name(keyval, mods) : accel;
+    };
+    setLabel();
+
+    const controller = new Gtk.EventControllerKey();
+    controller.set_propagation_phase(Gtk.PropagationPhase.CAPTURE);
+    controller.connect('key-pressed', (_c, keyval, _keycode, state) => {
+        if (keyval === Gdk.KEY_Escape || keyval === Gdk.KEY_BackSpace ||
+            keyval === Gdk.KEY_Delete) {
+            settings.set_strv(key, []);
+            setLabel();
+            return Gdk.EVENT_STOP;
+        }
+        // Ignore a bare modifier press: the user is still building the combo.
+        if (getModifierKeys().has(keyval))
+            return Gdk.EVENT_STOP;
+
+        const mods = state & Gtk.accelerator_get_default_mod_mask();
+        // Shift+letter is technically a "valid" accelerator but binding it
+        // globally would swallow ordinary capitalised typing, so require a
+        // real command modifier.
+        if (!requiredModifierPressed(mods) || !Gtk.accelerator_valid(keyval, mods))
+            return Gdk.EVENT_STOP;
+
+        const name = Gtk.accelerator_name(keyval, mods);
+        if (name) {
+            settings.set_strv(key, [name]);
+            setLabel();
+        }
+        return Gdk.EVENT_STOP;
+    });
+    row.add_controller(controller);
+
+    settings.connect(`changed::${key}`, setLabel);
+    return row;
+}
+
+// Ctrl, Alt, Super, Meta or Hyper - everything but Shift. Gtk.accelerator_valid()
+// alone accepts Shift-only combinations, which are unusable as global shortcuts.
+function requiredModifierPressed(mods) {
+    return (mods & COMMAND_MODIFIER_MASK) !== 0;
+}
+
+// Modifier keyvals, ignored while the user is still holding the combination
+// together. Built lazily because Gdk constants need the loaded namespace.
+let _modifierKeys = null;
+function getModifierKeys() {
+    if (!_modifierKeys) {
+        _modifierKeys = new Set([
+            Gdk.KEY_Control_L, Gdk.KEY_Control_R,
+            Gdk.KEY_Alt_L, Gdk.KEY_Alt_R,
+            Gdk.KEY_Shift_L, Gdk.KEY_Shift_R,
+            Gdk.KEY_Super_L, Gdk.KEY_Super_R,
+            Gdk.KEY_Meta_L, Gdk.KEY_Meta_R,
+            Gdk.KEY_Hyper_L, Gdk.KEY_Hyper_R,
+        ]);
+    }
+    return _modifierKeys;
+}
+
+// Everything except Shift: the modifiers that make a combination safe to bind
+// globally instead of stealing plain typing.
+const COMMAND_MODIFIER_MASK = Gdk.ModifierType.CONTROL_MASK |
+    Gdk.ModifierType.ALT_MASK |
+    Gdk.ModifierType.SUPER_MASK |
+    Gdk.ModifierType.META_MASK |
+    Gdk.ModifierType.HYPER_MASK;
+
 export default class GnomeToolboxPreferences extends ExtensionPreferences {
     fillPreferencesWindow(window) {
         const settings = this.getSettings();
@@ -73,6 +161,7 @@ export default class GnomeToolboxPreferences extends ExtensionPreferences {
         page.add(this._placementGroup(settings));
         page.add(this._readoutsGroup(settings));
         page.add(this._clipboardGroup(settings));
+        page.add(this._screenshotGroup(settings));
         page.add(this._notificationGroup(settings));
 
         window.add(page);
@@ -164,6 +253,13 @@ export default class GnomeToolboxPreferences extends ExtensionPreferences {
         bindSpin(settings, 'history-size', sizeRow);
         group.add(sizeRow);
 
+        const imagesRow = new Adw.SwitchRow({
+            title: '记录图片',
+            subtitle: '截图只提供 image/* 类型，关闭后截图不会进入历史',
+        });
+        bindSwitch(settings, 'history-include-images', imagesRow);
+        group.add(imagesRow);
+
         const maxLenRow = new Adw.SpinRow({
             title: '单条最大长度',
             subtitle: '超出部分截断后入库（字符数）',
@@ -190,6 +286,37 @@ export default class GnomeToolboxPreferences extends ExtensionPreferences {
         });
         bindSwitch(settings, 'show-clipboard-osd', osdRow);
         group.add(osdRow);
+
+        return group;
+    }
+
+    _screenshotGroup(settings) {
+        const group = new Adw.PreferencesGroup({
+            title: '截图格式',
+            description: '微信 Alt+A 等 Qt 截图工具把 BMP 字节挂在 image/png 名下，' +
+                '浏览器和 DSH 按声明类型校验时会拒收。开启后按字节真实格式转成 PNG 再写回剪贴板。',
+        });
+
+        const masterRow = new Adw.SwitchRow({
+            title: '截图转 PNG',
+            subtitle: '菜单项与下方快捷键的唯一开关',
+        });
+        bindSwitch(settings, 'normalize-screenshots', masterRow);
+        group.add(masterRow);
+
+        const keyRow = shortcutRow(settings, 'normalize-shortcut',
+            '转换快捷键',
+            '按下目标组合键即可录入；Backspace/Delete/Esc 清除');
+        group.add(keyRow);
+
+        const autoRow = new Adw.SwitchRow({
+            title: '复制时自动转换',
+            subtitle: '截图一进剪贴板就转好，无需按快捷键；会接管剪贴板所有权',
+        });
+        bindSwitch(settings, 'normalize-on-copy', autoRow);
+        group.add(autoRow);
+
+        this._followSwitch(settings, masterRow, [keyRow, autoRow]);
 
         return group;
     }

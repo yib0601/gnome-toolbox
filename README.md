@@ -8,7 +8,7 @@ GNOME Shell 聚合工具箱插件（GNOME 51 适配），uuid: `gnome-toolbox@yi
 |---|---|---|
 | Vitals | `features/vitals.js` | 顶栏实时显示 CPU/内存占用与上下行网速；下拉菜单只补顶栏没有的温度与磁盘用量（顶栏已有项不重复入菜单） |
 | Lock Keys | `features/lockkeys.js` | Num/Caps Lock 状态变化时弹出 OSD 提示 |
-| All-in-One Clipboard | `features/clipboard.js` | 剪贴板历史（去重、可点选回填/粘贴）、隐私模式、一键清空、复制时 OSD 屏显提示 |
+| All-in-One Clipboard | `features/clipboard.js` | 剪贴板历史（文本 + 图片、去重、可点选回填/粘贴）、隐私模式、一键清空、复制时 OSD 屏显提示、截图格式归一（BMP 伪装 PNG → 真 PNG） |
 | AppIndicator Support | `tray/`（移植自 `appindicatorsupport@…`，GPL-2.0+） | StatusNotifierItem/AppIndicator/遗留托盘图标接管 |
 | 通知定时关闭（本项目新增） | `features/notifications.js` | 气泡通知完整显示 N 秒（默认 6s）后自动收起，通知保留并进入顶部日历的通知列表；鼠标停在气泡上时推迟收起，移开后重新计时 |
 
@@ -55,6 +55,40 @@ appindicator 可比对，仅允许 import 路径等机械改动，不掺入自�
 - `St.BoxLayout` 用 `orientation: Clutter.Orientation.HORIZONTAL`，不再有 `vertical` 属性
 - `Clutter.get_default_backend()` 已移除，改用 `global.stage.get_context().get_backend()`
 - 扩展目录监视被移除：新装/重装扩展后必须注销重登（或重启 gnome-shell），shell 只在会话启动时扫描扩展目录
+
+## 剪贴板图片记录的实现约束（GNOME 50）
+
+`features/clipboard.js` 要同时处理文本和图片，依赖以下几处 shell/St 行为（改动前对照 `shell-src/` 与 `st-clipboard.c`）：
+
+- `St.Clipboard` 只认 4 个文本 mimetype（`text/plain;charset=utf-8`、`UTF8_STRING`、`text/plain`、`STRING`）。截图类剪贴板（GNOME 自带 PrtSc「截图已捕获」、微信 Alt+A）**只提供 `image/*`**，一个文本类型都没有，所以纯文本历史必然漏掉截图。`get_text()` 在无匹配类型时回调 `text = NULL`，这是「不是文本」的判定信号。
+- 抓取前先用 `get_mimetypes()` 看当前 owner 真正提供什么，再决定取文本还是取图片，不再盲目轮询 4 个文本类型。空列表 == 没有 owner（剪贴板被清空），此时不弹提示也不入库。
+- `get_current_owner()` 在 gnome-shell 50 的 typelib 里**未导出**，只能用 `get_mimetypes()` 判空。
+- 声明的 mimetype 不可信：微信 Linux 把同一份 **BMP** 字节挂在 `image/png`、`image/jpeg`、`image/bmp` 等所有名字下。因此一律按字节 `GdkPixbuf.PixbufLoader` 解码，再用 `save_to_bufferv('png')` 转 PNG 入库；解码失败就试下一个候选类型。
+- 列表缩略图用 `St.ImageContent`（它是 `Gio.Icon`，`St.Icon.gicon` 能直接吃；`st_texture_cache_load_gicon()` 对 `ST_IS_IMAGE_CONTENT` 有专门分支，不会重复解码）。`set_bytes()` 要 `RGBA_8888` 紧凑排列，截图多为 3 通道 BGR，必须先 `add_alpha()`。
+- 取图/取文的回调可能不回来（owner 卡住），`_fetch()` 里有 3s 兜底并在 settle 时移除该 timer。
+
+## 截图格式归一（BMP 伪装 PNG）
+
+微信 Alt+A 的 Qt 截图器把**同一份 BMP 字节**挂在 `image/png`、`image/jpeg`、`image/webp`、`image/bmp`、`application/x-qt-image` 所有名字下。解码党（本项目历史、GdkPixbuf、ImageMagick）都能正常显示，但**信声明类型的消费方会拒收**——浏览器把 `file.type` 报成 `image/png` 却拿到 `BM` 魔数，DSH 的附件管线用 sharp 解码直接判 `INVALID_IMAGE`（提示「仅支持 PNG、JPG、WebP、GIF 格式的图片」）。
+
+归一路径（`ClipboardManager.normalizeScreenshot()`）：
+
+- 用 `loader.get_format().get_name()` 取**真实容器名**（`bmp`/`tiff`/`png`…），与声明类型无关。这是判断「声明是否撒谎」的唯一可靠依据。
+- 真实格式属于 `NATIVE_FORMATS`（png/jpeg/webp/gif）→ 直接返回 `native`，**不重编码、不抢剪贴板所有权**，所以连按两次快捷键不会产生新字节。
+- 否则 `save_to_bufferv('png')` 重编码，用 `set_content(CLIPBOARD, 'image/png', bytes)` 写回。`_writeImageBytes()` 统一处理 `_busy` / `_internalWrite` / `_pendingFetch`，避免触发自己的「复制成功」提示和回抓。
+- 纯文本剪贴板返回 `no-image` 并静默退出，绝不覆盖用户正在粘贴的文本。
+
+三个入口共用同一实现：
+
+| 入口 | 行为 |
+|---|---|
+| 菜单「截图转 PNG」 | 手动触发，静默执行 |
+| 快捷键（默认 `Ctrl+Alt+V`） | `Main.wm.addKeybinding('normalize-shortcut', …)` 直接吃 schema 的 `as` 键，改设置即时生效 |
+| `normalize-on-copy`（默认关） | 图片落地剪贴板即自动转换，在历史条目入库之后执行，转换失败不损失抓取 |
+
+`normalize-screenshots` 是唯一总开关：关掉时菜单项隐藏、快捷键注销、自动转换不触发。
+
+**归一化全程静默**：不弹 OSD、不弹通知。按键本身已是明确意图，每次截图都回一条提示纯属噪音；失败只写 journal（`gnome-toolbox: screenshot normalize: …`）供排查。与上图「复制时 OSD 屏显提示」完全解耦——那个开关只管复制提示，与转换无关。
 
 ## 通知定时关闭的实现约束（GNOME 51）
 
