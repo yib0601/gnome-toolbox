@@ -147,6 +147,11 @@ export class ClipboardManager extends Signals.EventEmitter {
         // Set when a copy happened while a fetch was in flight, so the newer
         // clipboard content is not lost (the fetch is for the older owner).
         this._pendingFetch = false;
+        // True while the clipboard holds an image whose *real* container is
+        // not one browsers accept (WeChat Alt+A ships BMP bytes under an
+        // image/png name). Gates the manual "截图转 PNG" entry so a rescue
+        // action is not parked permanently above the history list.
+        this._needsNormalize = false;
 
         const display = Shell.Global.get().get_display();
         this._selection = display.get_selection();
@@ -161,8 +166,10 @@ export class ClipboardManager extends Signals.EventEmitter {
                 // owner for that, but Meta.Selection.get_current_owner() is
                 // not introspectable in gnome-shell 50, so probe the mimetype
                 // list instead - it is NULL only when there is no owner.
-                if (!this._mimeTypes().length)
+                if (!this._mimeTypes().length) {
+                    this._setNeedsNormalize(false);
                     return;
+                }
 
                 // Notify first, before the fetch gate: _busy can sit in a
                 // transfer for a while (slow/unresponsive clipboard owners),
@@ -185,14 +192,29 @@ export class ClipboardManager extends Signals.EventEmitter {
         return this._history;
     }
 
+    // Whether the clipboard image at hand really needs re-encoding. The UI
+    // shows its manual entry only while this is true.
+    get needsNormalize() {
+        return this._needsNormalize;
+    }
+
+    _setNeedsNormalize(value) {
+        if (this._needsNormalize === value)
+            return;
+        this._needsNormalize = value;
+        this.emit('normalize-changed');
+    }
+
     get privateMode() {
         return this._privacy;
     }
 
     setPrivateMode(enabled) {
         this._privacy = enabled;
-        if (enabled)
+        if (enabled) {
             this.clearHistory();
+            this._setNeedsNormalize(false);
+        }
         this.emit('privacy-changed', enabled);
     }
 
@@ -258,13 +280,18 @@ export class ClipboardManager extends Signals.EventEmitter {
                     if (this._destroyed)
                         return;
                     settle();
+                    // Plain text on the clipboard: nothing to normalize.
+                    this._setNeedsNormalize(false);
                     if (text)
                         this._pushText(text);
                 });
         } else if (hasImage && includeImages) {
             this._fetchImage(settle);
         } else {
+            // Neither text nor a captured image: no image we can promise to
+            // fix, so drop any stale affordance from the previous owner.
             settle();
+            this._setNeedsNormalize(false);
             return;
         }
 
@@ -309,6 +336,9 @@ export class ClipboardManager extends Signals.EventEmitter {
                         return;
                     }
                     settle();
+                    // Surface the rescue entry only for a genuine container
+                    // mismatch (declared image/*, bytes are bmp/tiff/...).
+                    this._setNeedsNormalize(!isNativeFormat(decoded.sourceFormat));
                     const entry = this._entryFromDecoded(decoded);
                     if (entry)
                         this._pushEntry(entry);
@@ -404,6 +434,9 @@ export class ClipboardManager extends Signals.EventEmitter {
         if (!png)
             return false;
         this._writeImageBytes(png, 'image/png');
+        // The clipboard now carries genuine PNG, so the rescue entry has
+        // nothing left to do until another mislabelled image shows up.
+        this._setNeedsNormalize(false);
         return true;
     }
 
@@ -641,7 +674,12 @@ export class ClipboardFeature extends PanelFeature {
         // Screenshot normalization: the fix for capturers that declare
         // image/png but ship BMP (WeChat Alt+A), which browsers and DSH
         // reject even though the bytes are a perfectly good image.
+        // Hidden by default: it only shows up while the clipboard really
+        // holds such an image (_syncNormalizeAffordances), so the history
+        // area is not permanent home to a rescue action that reads like a
+        // stray history row.
         this._normalizeItem = new PopupMenu.PopupMenuItem('截图转 PNG');
+        this._normalizeItem.visible = false;
         this._normalizeItem.connect('activate', () => this._normalizeNow());
         menu.addMenuItem(this._normalizeItem);
 
@@ -669,13 +707,15 @@ export class ClipboardFeature extends PanelFeature {
                 else if (key === 'normalize-screenshots')
                     this._syncNormalizeAffordances();
             });
+        this._clipNormalizeId = this._clipManager.connect('normalize-changed',
+            () => this._syncNormalizeAffordances());
         this._syncNormalizeAffordances();
         this._renderHistory();
     }
 
     disable() {
         for (const key of ['_clipManagerId', '_clipCopiedId',
-            '_clipPrivacyId', '_clipSettingsId']) {
+            '_clipPrivacyId', '_clipSettingsId', '_clipNormalizeId']) {
             if (this[key]) {
                 if (key === '_clipSettingsId')
                     this.ctx.settings.disconnect(this[key]);
@@ -716,12 +756,18 @@ export class ClipboardFeature extends PanelFeature {
         this._keybindingRegistered = false;
     }
 
-    // The menu entry disappears when the user turns normalization off, and the
-    // shortcut follows the same switch, so the two cannot disagree.
+    // Two independent conditions gate the manual entry: the feature switch,
+    // and whether the clipboard image actually needs re-encoding. Anything
+    // else and the entry stays invisible — the shortcut covers the rest, and
+    // a permanently parked "截图转 PNG" row above the history read like a
+    // broken history item. The shortcut follows the switch only, so it stays
+    // available even when no mislabelled image is on the clipboard.
     _syncNormalizeAffordances() {
         const enabled = this.ctx.settings.get_boolean('normalize-screenshots');
-        if (this._normalizeItem)
-            this._normalizeItem.visible = enabled;
+        if (this._normalizeItem) {
+            this._normalizeItem.visible =
+                enabled && this._clipManager.needsNormalize;
+        }
         if (enabled)
             this._registerKeybinding();
         else

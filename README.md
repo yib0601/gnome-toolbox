@@ -82,11 +82,13 @@ appindicator 可比对，仅允许 import 路径等机械改动，不掺入自�
 
 | 入口 | 行为 |
 |---|---|
-| 菜单「截图转 PNG」 | 手动触发，静默执行 |
+| 菜单「截图转 PNG」 | 手动触发，静默执行。**仅当剪贴板里确实躺着一张伪装格式图片时才出现**（见下） |
 | 快捷键（默认 `Ctrl+Alt+V`） | `Main.wm.addKeybinding('normalize-shortcut', …)` 直接吃 schema 的 `as` 键，改设置即时生效 |
 | `normalize-on-copy`（默认关） | 图片落地剪贴板即自动转换，在历史条目入库之后执行，转换失败不损失抓取 |
 
-`normalize-screenshots` 是唯一总开关：关掉时菜单项隐藏、快捷键注销、自动转换不触发。
+`normalize-screenshots` 是总开关：关掉时菜单项隐藏、快捷键注销、自动转换不触发。
+
+菜单项还有第二层条件：只有最近一次抓到的剪贴板图片，其**真实容器**不属于 png/jpeg/webp/gif 时才可见（`ClipboardManager.needsNormalize` + `normalize-changed` 信号驱动）。这个应急动作不再常驻在剪贴板历史区上方——此前它与「清空历史」、历史条目混排，看起来像一条错乱的历史记录。快捷键不受这层条件限制，随时可用。
 
 **归一化全程静默**：不弹 OSD、不弹通知。按键本身已是明确意图，每次截图都回一条提示纯属噪音；失败只写 journal（`gnome-toolbox: screenshot normalize: …`）供排查。与上图「复制时 OSD 屏显提示」完全解耦——那个开关只管复制提示，与转换无关。
 
