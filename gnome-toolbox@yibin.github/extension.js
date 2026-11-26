@@ -68,7 +68,10 @@ export default class GnomeToolboxExtension extends Extension.Extension {
 
         // Clipboard history state outlives the feature wrapper (the feature
         // only owns UI + listeners), so the manager lives on the extension.
+        // Restore before the indicator is built: the first menu open must
+        // already show the entries the previous session left behind.
         this._clipboardManager = new ClipboardManager(this._settings);
+        this._clipboardManager.restore();
 
         const ctx = {
             extension: this,

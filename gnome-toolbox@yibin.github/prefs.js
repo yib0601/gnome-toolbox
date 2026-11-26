@@ -261,6 +261,14 @@ export default class GnomeToolboxPreferences extends ExtensionPreferences {
         bindSwitch(settings, 'history-include-images', imagesRow);
         group.add(imagesRow);
 
+        const persistRow = new Adw.SwitchRow({
+            title: '跨会话保留历史',
+            subtitle: '写入 ~/.local/state/gnome-toolbox/clipboard，注销或重启后仍在；' +
+                '关闭即刻删除已保存快照',
+        });
+        bindSwitch(settings, 'clipboard-persist', persistRow);
+        group.add(persistRow);
+
         const maxLenRow = new Adw.SpinRow({
             title: '单条最大长度',
             subtitle: '超出部分截断后入库（字符数）',

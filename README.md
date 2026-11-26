@@ -8,12 +8,13 @@ GNOME Shell 聚合工具箱插件（GNOME 51 适配），uuid: `gnome-toolbox@yi
 |---|---|---|
 | Vitals | `features/vitals.js` | 顶栏实时显示 CPU/内存占用与上下行网速；下拉菜单只补顶栏没有的温度与磁盘用量（顶栏已有项不重复入菜单） |
 | Lock Keys | `features/lockkeys.js` | Num/Caps Lock 状态变化时弹出 OSD 提示 |
-| All-in-One Clipboard | `features/clipboard.js` | 剪贴板历史（文本 + 图片、去重、可点选回填/粘贴）、隐私模式、一键清空、复制时 OSD 屏显提示、截图格式归一（BMP 伪装 PNG → 真 PNG） |
+| All-in-One Clipboard | `features/clipboard.js` | 剪贴板历史（文本 + 图片、去重、可点选回填/粘贴、**跨会话保留**）、隐私模式、一键清空、复制时 OSD 屏显提示、截图格式归一（BMP 伪装 PNG → 真 PNG） |
 | AppIndicator Support | `tray/`（移植自 `appindicatorsupport@…`，GPL-2.0+） | StatusNotifierItem/AppIndicator/遗留托盘图标接管 |
 | 通知定时关闭（本项目新增） | `features/notifications.js` | 气泡通知完整显示 N 秒（默认 6s）后自动收起，通知保留并进入顶部日历的通知列表；鼠标停在气泡上时推迟收起，移开后重新计时 |
 | 视频播放器卡死自愈（本项目新增） | `features/playerfix.js` | 探测 GNOME 视频播放器（Showtime）的 D-Bus 存活；卡死时结束僵死进程，解除「点图标没反应 / 打不开」 |
 
 每个功能对应一个 `PanelFeature` 实现，可在设置中单独启停（`enable-*` 开关，热生效）。
+共享下拉菜单统一包了一层限高视口，内容再长也只占屏幕内的部分并可滚动（见「下拉菜单限高与滚动」）。
 
 ## 目录结构
 
@@ -26,10 +27,12 @@ core/
   logger.js             结构化日志
   input.js              共享虚拟键盘 / keymap 获取（防 use-after-free）
   playerguard.js        播放器 D-Bus 存活探测 / 结束僵死进程（无 shell 依赖，scripts/test-playerguard.sh 覆盖）
+  clipstore.js          剪贴板历史的磁盘快照（history.json + images/*.png，无 shell 依赖，scripts/test-clipstore.sh 覆盖）
+  menuscroll.js         共享下拉菜单的视口包装（限高 + 滚动，shell 相关能力由 indicator.js 注入）
 features/               自研功能，一文件一 Feature
   vitals.js             VitalsSampler 采样 + 顶栏/菜单展示
   lockkeys.js           Num/Caps Lock 监听与 OSD 提示
-  clipboard.js          ClipboardManager + 菜单展示
+  clipboard.js          ClipboardManager（抓取/去重/隐私/持久化）+ 菜单展示
   tray.js               AppIndicator 通道包装（watcher 启停）
   notifications.js      通知气泡定时收起（挂钩 MessageTray 状态机）
   playerfix.js          视频播放器卡死自愈（菜单状态行 + 自动守护）
@@ -42,6 +45,8 @@ tray/                   移植子系统（与上游 appindicator 结构一一对
 schemas/                GSettings schema
 scripts/
   test-playerguard.sh   播放器探测的夹具化自测（造 D-Bus 假进程，不依赖 Showtime）
+  test-clipstore.sh     剪贴板快照的夹具化自测（临时目录、伪 PNG，不依赖 shell）
+  test-shell-live.sh    私有 headless GNOME Shell 里跑真插件（持久化 + 菜单滚动）
 ```
 
 约定：`core/`、`features/` 为本项目代码，可自由演进；`tray/` 保持与上游
@@ -60,6 +65,46 @@ appindicator 可比对，仅允许 import 路径等机械改动，不掺入自�
 - `St.BoxLayout` 用 `orientation: Clutter.Orientation.HORIZONTAL`，不再有 `vertical` 属性
 - `Clutter.get_default_backend()` 已移除，改用 `global.stage.get_context().get_backend()`
 - 扩展目录监视被移除：新装/重装扩展后必须注销重登（或重启 gnome-shell），shell 只在会话启动时扫描扩展目录
+
+## 剪贴板历史跨会话保留
+
+`features/clipboard.js` + `core/clipstore.js`。
+
+剪贴板历史原本只活在 gnome-shell 进程里，注销或重启就没了。现在文本与图片都镜像到磁盘：
+
+```
+~/.local/state/gnome-toolbox/clipboard/
+  history.json          {version, entries: [...]}  文本内联，图片只留摘要
+  images/<sha256>.png   图片字节，按条目摘要寻址（同图只写一次，重复复制不重写）
+```
+
+写入策略与配套约束：
+
+- **合并写**：每次复制不立刻落盘，1500ms 的低优先级定时器合并连续复制；`清空历史`、进入/退出隐私模式、关闭持久化、扩展 `destroy()` 走同步写，不留半截状态。
+- **图片单独存文件**：base64 塞进 JSON 会让一张 5MB 截图涨三倍，而且每次保存都重写全部图片。`images/` 按摘要命名，内容没变就不重写（`file_test` 判定，测试里用 mtime 断言）。
+- **孤儿图片回收**：写入时收集本次仍在历史里的摘要集，`images/` 里其余 PNG 删除；`history-size` 调小时先裁内存再立刻写盘，否则被淘汰的条目下次登录又回来。
+- **隐私模式是会话开关，不是存盘项**：开启即清空快照，关闭也不复活——本来就不该把「刚说了别记」的内容留在磁盘上。
+- **加载容错**：JSON 损坏、`history.json` 不存在（首次安装）、图片文件被外部删掉，都只影响对应内容，不抛异常也不清空其余条目；摘要必须是 64 位 sha256 十六进制，手改的 `../../etc/passwd` 一律丢弃（防目录穿越）。
+- 缩略图不进快照，加载后用 `GdkPixbuf` 从 PNG 重新生成；解码失败只丢预览，条目仍可点选回填。
+- 恢复时机在 `extension.enable()` 构建 indicator **之前**，第一次打开菜单就能看到历史；若恢复前已有新复制落地（`_history` 非空）则放弃恢复，不覆盖更新的内容。
+
+配置项：`clipboard-persist`（默认开）。关掉即刻删除快照。
+
+## 下拉菜单限高与滚动
+
+`core/menuscroll.js` + `indicator.js`。
+
+共享下拉菜单随功能增加越来越长（剪贴板历史可达几十行），而 `PanelMenu` 只给 boxpointer 设了 `max-height: 工作区高度`：弹窗从顶栏下方开始，所以内容一多就溢出屏幕底边，超出的行既看不见也滚不到。
+
+`indicator.js` 在构建 indicator 时用 `MenuScroll` 把菜单内容盒（`menu.box`）包进 `St.ScrollView`：
+
+- `.popup-menu-content`（内边距 / 背景 / 圆角）从会滚动的 box 移到固定的视口上，卡片不跟着内容滚。
+- 视口 `max-height` = 工作区高（`getWorkAreaForMonitor()` 已排除顶栏，不能重复减面板高）− boxpointer 的 margin/arrow rise − 视口自身 padding/border − 12px 余量。`max-height` 只钳内容盒（`MIN(natural, max_height) + height_inc`），视口的 padding/border 会加在外面，所以最后两项必须自己扣：漏掉 chrome 那 14px 时实测弹窗正好贴到工作区底边（bottom=800 = 工作区底），底部余量被吃光；扣掉之后 bottom=788，留出 12px。
+- 打开时重算并回到顶部；`monitors-changed` 时重算，换屏/改分辨率不用重登。
+- 键盘焦点移动时调 `ensureActorVisibleInScrollView()`（shell 自己的通知列表同样做法）——`St.ScrollView` 会把焦点导航转交给子级，但**不会**把焦点行滚进视野。
+- 卸载（`_onDestroy`）时把 box 还原给 boxpointer，菜单照旧自毁。
+
+两个必须照着 shell 源码写的地方：Clutter 拒绝给「已有 parent」的 actor 换父（`g_warning` 后什么也不做），所以先 `bin.child = null` 再 `scroll.set_child(box)`，销毁时反向同理；`St.ScrollView` 只有在 `vscrollbar_policy != NEVER` 时 min-height 才返回 0，否则视口不肯缩小、限高失效。
 
 ## 剪贴板图片记录的实现约束（GNOME 50）
 
@@ -131,6 +176,18 @@ GNOME 视频播放器（Showtime 50，Fedora 45 自带）在启动播放时会�
 脚本自己造临时 D-Bus 夹具（占名 + 主循环、占名 + 主循环被堵死），不需要装 Showtime。低于基线时退出码非 0：当前 `hung` 用例就是红的，直到 `LIVENESS` 换成 Showtime 自己实现的方法。
 
 两个 gjs 坑（脚本里已绕开，手搓时别踩）：`gjs -m` 与 `-c` 互斥，写 `gjs -m -c '...'` 只会得到 `Failed to parse module <command line>`；`import` 路径里含 `@` 的目录（`gnome-toolbox@yibin.github`）会被当成带 userinfo 的 URL，解析成 `%40`，报 `Module not found`——所以脚本先把模块拷到普通临时目录再跑。
+
+## 自测
+
+三个脚本都不碰当前桌面会话，各自有独立的边界：
+
+| 脚本 | 覆盖 | 需要什么 |
+|---|---|---|
+| `scripts/test-playerguard.sh` | 播放器探测 absent / healthy / hung | 自建临时 D-Bus 夹具 |
+| `scripts/test-clipstore.sh` | 快照往返、图片写入复用、孤儿 PNG 回收、隐私清空、JSON 损坏、摘要穿越 | 纯 gjs + 临时目录 |
+| `scripts/test-shell-live.sh` | 插件在真 shell 里的行为：历史与图片跨重启恢复、隐私模式清空、`history-size` 调小同步裁剪快照、菜单钳在工作区内、滚到底看得到最后一行、热启停后历史与视口都在 | 私有 `XDG_*` + 私有 session bus 的 `gnome-shell --headless` |
+
+`test-shell-live.sh` 装一份真插件加一个只做测量的探针扩展，多次启动 shell 分别充当「写入」与「重启后校验」，每轮拿到探针标记就杀掉整个进程组提前收工，跑一次约 40 秒。它对 `f2d8830`（本次改动之前）是红的：`history not restored: []`、`no viewport installed`——这两条正是「重启后历史丢失」与「菜单内容滚不到」的回归门禁。
 
 ## 启用
 

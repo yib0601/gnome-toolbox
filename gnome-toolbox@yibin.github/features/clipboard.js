@@ -32,6 +32,7 @@ import * as Signals from 'resource:///org/gnome/shell/misc/signals.js';
 
 import {PanelFeature} from '../core/feature.js';
 import {getVirtualKeyboard} from '../core/input.js';
+import {ClipboardStore} from '../core/clipstore.js';
 
 // The mimetypes St.Clipboard itself knows about (st-clipboard.c
 // supported_mimetypes): text/plain;charset=utf-8, UTF8_STRING, text/plain,
@@ -129,13 +130,24 @@ function isNativeFormat(format) {
 }
 
 export class ClipboardManager extends Signals.EventEmitter {
-    constructor(settings) {
+    /**
+     * @param {Gio.Settings} settings extension settings
+     * @param {{store?: object}} [options] `store` overrides the on-disk
+     *   snapshot (scripts/test-clipstore.sh points it at a temp directory)
+     */
+    constructor(settings, {store = null} = {}) {
         super();
 
         this._settings = settings;
         this._clipboard = St.Clipboard.get_default();
         this._history = [];
         this._privacy = false;
+        // Durable snapshot. The shell process cannot survive a logout, so the
+        // history is mirrored to disk and read back in restore().
+        this._store = store ?? new ClipboardStore({
+            log: {warn: message => log(message)},
+        });
+        this._persist = settings.get_boolean('clipboard-persist');
         // Last entry signature (text body or image hash) for dedup.
         this._lastContent = null;
         this._busy = false;
@@ -185,11 +197,74 @@ export class ClipboardManager extends Signals.EventEmitter {
             });
 
         this._settingsChangedId = settings.connect('changed::history-size',
-            () => this._trim());
+            () => {
+                this._trim();
+                // The snapshot must shrink with the list, or the entries that
+                // just left memory come back on the next login.
+                this._persistNow();
+            });
+        this._persistChangedId = settings.connect('changed::clipboard-persist',
+            () => this._onPersistChanged());
     }
 
     get history() {
         return this._history;
+    }
+
+    // --- persistence -------------------------------------------------------
+
+    // Read the snapshot written by the previous shell session and adopt it.
+    // Must run before the feature renders the menu, so the history is there on
+    // the first open instead of appearing after the first copy.
+    restore() {
+        if (!this._persist)
+            return;
+        // A live copy may have landed between enable() and this call; restoring
+        // an older snapshot over it would drop that copy, so only adopt when
+        // the in-memory list is still empty.
+        if (this._history.length)
+            return;
+
+        const entries = this._store.load();
+        if (!entries.length)
+            return;
+
+        this._history = entries;
+        this._trim();
+        this._trimImageBudget();
+        // Rebuild the pixel-size thumbnails the snapshot does not carry.
+        for (const entry of this._history) {
+            if (entry.kind === 'image' && !entry.thumb)
+                entry.thumb = this._thumbFromBytes(entry.bytes);
+        }
+        // Adopt the newest entry as the dedup baseline: it is what the
+        // clipboard most likely still holds after a re-login.
+        this._lastContent = this._entrySignature(this._history[0]);
+        this.emit('history-changed');
+    }
+
+    // Thumbnail from stored PNG bytes; null when GdkPixbuf cannot decode them
+    // (entry stays usable, it just shows the size label without a preview).
+    _thumbFromBytes(bytes) {
+        const decoded = decodeClipboardImage(bytes);
+        return decoded ? this._makeThumb(decoded.pixbuf) : null;
+    }
+
+    _persistNow() {
+        if (!this._persist)
+            return;
+        this._store.save(this._history);
+    }
+
+    _onPersistChanged() {
+        const enabled = this._settings.get_boolean('clipboard-persist');
+        if (enabled === this._persist)
+            return;
+        this._persist = enabled;
+        if (enabled)
+            this._persistNow();
+        else
+            this._store.clear();
     }
 
     // Whether the clipboard image at hand really needs re-encoding. The UI
@@ -212,9 +287,15 @@ export class ClipboardManager extends Signals.EventEmitter {
     setPrivateMode(enabled) {
         this._privacy = enabled;
         if (enabled) {
+            // Drop what is already there, on screen and on disk: privacy mode
+            // starts from nothing rather than keeping earlier copies around.
             this.clearHistory();
             this._setNeedsNormalize(false);
         }
+        // Privacy mode is a session switch, not a stored preference: whatever
+        // it decides (on or off) the saved snapshot is gone, so lifting the
+        // mode never resurrects earlier copies.
+        this._store.clear();
         this.emit('privacy-changed', enabled);
     }
 
@@ -510,6 +591,7 @@ export class ClipboardManager extends Signals.EventEmitter {
         this._history.unshift(entry);
         this._trim();
         this._trimImageBudget();
+        this._persistNow();
         this.emit('history-changed');
     }
 
@@ -624,14 +706,23 @@ export class ClipboardManager extends Signals.EventEmitter {
     clearHistory() {
         this._history = [];
         this._lastContent = null;
+        // Explicit action: land on disk now instead of after the debounce, so
+        // a crash or logout right after "清空历史" cannot resurrect the list.
+        this._store.clear();
         this.emit('history-changed');
     }
 
     destroy() {
         this._destroyed = true;
+        // Flush anything the debounce still holds: this is the last moment the
+        // shell can write before the process goes away.
+        this._store.flush();
+        this._store.destroy();
         this._selection.disconnect(this._selectionId);
         if (this._settingsChangedId)
             this._settings.disconnect(this._settingsChangedId);
+        if (this._persistChangedId)
+            this._settings.disconnect(this._persistChangedId);
         this.emit('destroy');
     }
 }
