@@ -49,6 +49,23 @@
       <summary>Auto-hide critical notifications too</summary>
       <description>By default critical-urgency notifications keep their banner until dismissed by hand.</description>
     </key>
+    <!-- video player unstick (Showtime deadlocks at startup, upstream #309) -->
+    <key name="enable-player-fix" type="b">
+      <default>true</default>
+      <summary>Enable video player unstick</summary>
+      <description>Show the player state in the menu and kill a deadlocked video player (GNOME Showtime) after it stops answering on D-Bus. A frozen player keeps owning org.gnome.Showtime, so every later launch opens nothing until that process is gone.</description>
+    </key>
+    <key name="player-auto-fix" type="b">
+      <default>true</default>
+      <summary>Fix a frozen player automatically</summary>
+      <description>While the player is running, ping it every player-watch-interval seconds and kill it once three probes in a row go unanswered. Off leaves only the menu row as the manual trigger.</description>
+    </key>
+    <key name="player-watch-interval" type="i">
+      <default>10</default>
+      <range min="3" max="120"/>
+      <summary>Player liveness probe interval</summary>
+      <description>Seconds between liveness probes while the player is running.</description>
+    </key>
     <!-- vitals panel -->
     <key name="update-interval" type="i">
       <default>2</default>

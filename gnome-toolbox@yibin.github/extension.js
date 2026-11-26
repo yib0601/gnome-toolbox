@@ -29,6 +29,7 @@ import {LockKeysFeature} from './features/lockkeys.js';
 import {ClipboardManager, ClipboardFeature} from './features/clipboard.js';
 import {TrayFeature} from './features/tray.js';
 import {NotificationAutoHideFeature} from './features/notifications.js';
+import {PlayerFixFeature} from './features/playerfix.js';
 
 const INDICATOR_ROLE = 'gnome-toolbox';
 
@@ -81,10 +82,15 @@ export default class GnomeToolboxExtension extends Extension.Extension {
             new ClipboardFeature(ctx),
             new TrayFeature(ctx),
             new NotificationAutoHideFeature(ctx),
+            new PlayerFixFeature(ctx),
         ];
         this._trayFeature = this._features.find(f => f.id === 'tray');
 
         this._indicator = new ToolboxIndicator(this, this._settings);
+        // Set after construction so features can react to the shared dropdown
+        // (playerfix probes the player when the menu opens); features only read
+        // this from enable(), which runs later.
+        ctx.indicator = this._indicator;
         this._placeIndicator();
 
         this._placementIds = [

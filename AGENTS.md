@@ -19,10 +19,7 @@
 
 ## 3. 修改后必过验证闭环
 
-1. `node --check` 所有改动文件（ESM 语法）
-2. `./build-install.sh`（内含语法检查 + schema 编译 + 打包安装）
-3. **运行时验证**：改完必须验证扩展真实加载——`journalctl -f` 观察注销/重登录后无 `JS ERROR` / `Extension <uuid> had error`。Wayland 下 shell 模块有 ESM 缓存，改了必须注销重登录才生效，`gnome-shell -r` 不可用
-4. 验证通过前不得声称完成
+`./build-install.sh`（内含 `node --check` 语法检查 + schema 编译 + 打包安装）→ 注销重登录 → `journalctl` 确认加载时无 `JS ERROR` / `Extension <uuid> had error`。Wayland 下 shell 模块有 ESM 缓存，改了必须注销重登录才生效（`gnome-shell -r` 不可用）。**运行时验证通过前不得声称完成。**
 
 ## 4. 参考对照（可选）
 

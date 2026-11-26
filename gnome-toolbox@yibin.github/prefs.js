@@ -163,6 +163,7 @@ export default class GnomeToolboxPreferences extends ExtensionPreferences {
         page.add(this._clipboardGroup(settings));
         page.add(this._screenshotGroup(settings));
         page.add(this._notificationGroup(settings));
+        page.add(this._playerGroup(settings));
 
         window.add(page);
         window.search_enabled = true;
@@ -316,7 +317,7 @@ export default class GnomeToolboxPreferences extends ExtensionPreferences {
         bindSwitch(settings, 'normalize-on-copy', autoRow);
         group.add(autoRow);
 
-        this._followSwitch(settings, masterRow, [keyRow, autoRow]);
+        this._followSwitch(masterRow, [keyRow, autoRow]);
 
         return group;
     }
@@ -347,20 +348,53 @@ export default class GnomeToolboxPreferences extends ExtensionPreferences {
         group.add(masterRow);
         group.add(delayRow);
         group.add(criticalRow);
-        this._followSwitch(settings, masterRow, [delayRow, criticalRow]);
+        this._followSwitch(masterRow, [delayRow, criticalRow]);
+
+        return group;
+    }
+
+    _playerGroup(settings) {
+        const group = new Adw.PreferencesGroup({
+            title: '视频播放器',
+            description: 'GNOME 视频播放器（Showtime）偶尔在启动播放时死锁，' +
+                '僵死进程会一直占着 org.gnome.Showtime 这个名字，之后点图标都被投递给它，' +
+                '表现为「点了没反应、打不开」。开启后菜单里的「视频播放器」一行显示实时状态，点它立即检查；' +
+                '自动守护连续探测无响应时会结束僵死进程，让下次启动能正常开窗。',
+        });
+
+        const masterRow = new Adw.SwitchRow({
+            title: '视频播放器卡死自愈',
+            subtitle: '菜单内显示播放器状态，可手动触发检查与清理',
+        });
+        bindSwitch(settings, 'enable-player-fix', masterRow);
+        group.add(masterRow);
+
+        const autoRow = new Adw.SwitchRow({
+            title: '自动结束卡死进程',
+            subtitle: '按下方间隔探测，连续 3 次无响应即结束僵死进程',
+        });
+        bindSwitch(settings, 'player-auto-fix', autoRow);
+        group.add(autoRow);
+
+        const intervalRow = spinRow('探测间隔（秒）', '播放器运行时的存活探测周期',
+            3, 120);
+        bindSpin(settings, 'player-watch-interval', intervalRow);
+        group.add(intervalRow);
+
+        this._followSwitch(masterRow, [autoRow, intervalRow]);
 
         return group;
     }
 
     // Rows that only make sense while another switch is on: disabled (which
-    // greys them out) whenever the switch is off.
-    _followSwitch(settings, masterRow, rows) {
+    // greys them out) whenever the switch is off. The switch's own binding
+    // mirrors gsettings into `active`, so notify::active covers every path.
+    _followSwitch(masterRow, rows) {
         const apply = () => {
             for (const row of rows)
                 row.sensitive = masterRow.active;
         };
         masterRow.connect('notify::active', apply);
-        settings.connect('changed::enable-notification-autohide', apply);
         apply();
     }
 }

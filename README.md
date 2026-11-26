@@ -11,6 +11,7 @@ GNOME Shell 聚合工具箱插件（GNOME 51 适配），uuid: `gnome-toolbox@yi
 | All-in-One Clipboard | `features/clipboard.js` | 剪贴板历史（文本 + 图片、去重、可点选回填/粘贴）、隐私模式、一键清空、复制时 OSD 屏显提示、截图格式归一（BMP 伪装 PNG → 真 PNG） |
 | AppIndicator Support | `tray/`（移植自 `appindicatorsupport@…`，GPL-2.0+） | StatusNotifierItem/AppIndicator/遗留托盘图标接管 |
 | 通知定时关闭（本项目新增） | `features/notifications.js` | 气泡通知完整显示 N 秒（默认 6s）后自动收起，通知保留并进入顶部日历的通知列表；鼠标停在气泡上时推迟收起，移开后重新计时 |
+| 视频播放器卡死自愈（本项目新增） | `features/playerfix.js` | 探测 GNOME 视频播放器（Showtime）的 D-Bus 存活；卡死时结束僵死进程，解除「点图标没反应 / 打不开」 |
 
 每个功能对应一个 `PanelFeature` 实现，可在设置中单独启停（`enable-*` 开关，热生效）。
 
@@ -24,12 +25,14 @@ core/
   settings.js           gsettings 单例（原 settingsManager.js）
   logger.js             结构化日志
   input.js              共享虚拟键盘 / keymap 获取（防 use-after-free）
+  playerguard.js        播放器 D-Bus 存活探测 / 结束僵死进程（无 shell 依赖，可 gjs -m 单测）
 features/               自研功能，一文件一 Feature
   vitals.js             VitalsSampler 采样 + 顶栏/菜单展示
   lockkeys.js           Num/Caps Lock 监听与 OSD 提示
   clipboard.js          ClipboardManager + 菜单展示
   tray.js               AppIndicator 通道包装（watcher 启停）
   notifications.js      通知气泡定时收起（挂钩 MessageTray 状态机）
+  playerfix.js          视频播放器卡死自愈（菜单状态行 + 自动守护）
 tray/                   移植子系统（与上游 appindicator 结构一一对应）
   appIndicator.js dbusMenu.js dbusProxy.js dbusUtils.js iconCache.js
   indicatorStatusIcon.js interfaces.js pixmapsUtils.js promiseUtils.js
@@ -103,6 +106,24 @@ appindicator 可比对，仅允许 import 路径等机械改动，不掺入自�
 
 通知超时不是 `org.gnome.desktop.notifications` 的公开键（该 schema 只有 `show-banners` / `show-in-lock-screen`），
 所以倒计时由插件自己维护，配置项为 `notification-hide-delay`（秒）与 `auto-hide-critical-notifications`。
+
+## 视频播放器卡死自愈（Showtime）
+
+`features/playerfix.js` + `core/playerguard.js`。
+
+GNOME 视频播放器（Showtime 50，Fedora 45 自带）在启动播放时会偶发死锁：主线程等 GStreamer 的播放锁，流线程等主线程跑起来才肯放锁（上游 [GNOME/showtime#309](https://gitlab.gnome.org/GNOME/showtime/-/work_items/309)、[#299](https://gitlab.gnome.org/GNOME/showtime/-/work_items/299)）。僵死进程仍然持有 `org.gnome.Showtime` 这个 D-Bus 名字，而桌面图标是 `DBusActivatable=true`，于是之后每一次点击/双击视频都被投递给那个僵死单例 —— 无新窗口、无报错、0% CPU，表现就是「播放器打不开」。
+
+判据不能只看「名字被占用」，要看**主循环是否还应答**：`org.freedesktop.DBus.Peer.Ping` 由主循环处理，超时即卡死；然后取 `GetConnectionUnixProcessID` 的 pid，先 SIGTERM（主循环卡住也不影响默认动作生效），名字仍在再 SIGKILL，以「名字被释放」为成功判据。
+
+菜单里「视频播放器」一行显示状态（正常 / 无响应 / 未运行），点它立即检查一次并按需清理；自动守护在播放器运行期间每 `player-watch-interval` 秒探测，连续 3 次无响应才动手，避免误杀启动慢或负载高的实例。配置项：`enable-player-fix`、`player-auto-fix`、`player-watch-interval`。
+
+探测/清理逻辑与 shell 无关，可脱离 shell 直接验证：
+
+```bash
+gjs -m -c 'import {PlayerGuard} from "./gnome-toolbox@yibin.github/core/playerguard.js";
+const g = new PlayerGuard("org.gnome.Showtime");
+g.probe(3000).then(r => { print(JSON.stringify(r)); });'
+```
 
 ## 启用
 

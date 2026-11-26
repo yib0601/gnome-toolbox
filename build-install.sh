@@ -35,6 +35,20 @@ EXTRA=(
 )
 
 gnome-extensions pack --force "${EXTRA[@]}" "$EXT"
+
+# `gnome-extensions pack` only keeps schemas/*.xml and silently drops
+# gschemas.compiled. Without it Extension.getSettings() cannot build a
+# schema source from the extension dir and enable() throws -- while
+# `gnome-extensions info` may still report ACTIVE. Inject it back and
+# assert it landed.
+if [ -f "$EXT/schemas/gschemas.compiled" ]; then
+    ( cd "$EXT" && zip -q -9 "$OLDPWD/$ZIP" schemas/gschemas.compiled )
+    unzip -l "$ZIP" | grep -q 'schemas/gschemas.compiled' || {
+        echo "PACK_SCHEMA_MISSING: gschemas.compiled not in $ZIP"; exit 1; }
+else
+    echo "PACK_SCHEMA_MISSING: $EXT/schemas/gschemas.compiled was not compiled"; exit 1
+fi
+
 gnome-extensions install --force "$ZIP"
 
 # Make sure the uuid is (re-)enabled; gnome-shell only re-runs the
