@@ -7,12 +7,14 @@
 // next launch is handed to it by D-Bus activation and silently does nothing
 // — the player looks broken until that process is gone.
 //
-// "Owns the name" is therefore not enough to call the app alive:
-// org.freedesktop.DBus.Peer.Ping is answered from the main loop, so a
-// timeout means the process is wedged and must be killed to free the name.
+// "Owns the name" is therefore not enough to call the app alive: the owner has
+// to answer on its main loop. Peer methods are not usable here — GDBus answers
+// org.freedesktop.DBus.Peer.* (Ping, GetMachineId) for a connection from the
+// calling thread of the message bus, so a wedged app still pings OK. The probe
+// pins LIVENESS below to a specific path/interface/method pair.
 //
 // This module is shell-independent on purpose: it is imported by the
-// playerfix feature and can be exercised standalone through `gjs -m`.
+// playerfix feature and exercised by scripts/test-playerguard.sh.
 
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
@@ -20,13 +22,22 @@ import GLib from 'gi://GLib';
 const DBUS_NAME = 'org.freedesktop.DBus';
 const DBUS_PATH = '/org/freedesktop/DBus';
 const DBUS_IFACE = 'org.freedesktop.DBus';
-const PEER_IFACE = 'org.freedesktop.DBus.Peer';
-const PEER_PATH = '/';
+
+// Liveness probe: a reply proves the main loop still dispatches, a timeout
+// proves it does not, and UnknownMethod / UnknownObject / UnknownInterface mean
+// the loop answered too. Pin this to a method the app itself implements on a
+// real object path, or the signal stops meaning anything.
+const LIVENESS = Object.freeze({
+    interface: 'org.freedesktop.DBus.Peer',
+    method: 'Ping',
+    path: '/',
+    params: null,
+});
 
 // Probe results handed to the feature.
 // absent  - nobody owns the bus name (the app is not running)
-// healthy - the owner answers Peer.Ping from its main loop
-// hung    - the owner swallowed the ping: wedged, name needs freeing
+// healthy - the owner answered LIVENESS on its main loop
+// hung    - the owner swallowed it: wedged, name needs freeing
 // unknown - the ping failed for a reason other than a timeout
 export const ProbeState = Object.freeze({
     ABSENT: 'absent',
@@ -94,7 +105,7 @@ export class PlayerGuard {
     }
 
     /**
-     * @param {number} timeoutMs how long the ping may take before the owner
+     * @param {number} timeoutMs how long the probe may take before the owner
      *   is considered wedged
      * @returns {Promise<{state: string, owner?: string, pid?: number,
      *   error?: string}>}
@@ -107,18 +118,20 @@ export class PlayerGuard {
         const pid = await this._pidFor(owner);
 
         try {
-            await this._call(this._busName, PEER_PATH, PEER_IFACE, 'Ping',
-                null, timeoutMs);
+            await this._call(owner, LIVENESS.path, LIVENESS.interface,
+                LIVENESS.method, LIVENESS.params, timeoutMs);
             return {state: ProbeState.HEALTHY, owner, pid};
         } catch (e) {
             if (this._isTimeout(e))
                 return {state: ProbeState.HUNG, owner, pid};
+            if (this._isAnswered(e))
+                return {state: ProbeState.HEALTHY, owner, pid};
 
-            // The name may have been released while the ping was in flight.
+            // The name may have been released while the probe was in flight.
             if (!(await this.owner()))
                 return {state: ProbeState.ABSENT};
 
-            this._log?.debug(`gnome-toolbox: player ping failed: ${e.message}`);
+            this._log?.debug(`gnome-toolbox: player probe failed: ${e.message}`);
             return {state: ProbeState.UNKNOWN, owner, pid, error: e.message};
         }
     }
@@ -172,10 +185,21 @@ export class PlayerGuard {
             error.matches(Gio.io_error_quark(), Gio.IOErrorEnum.TIMED_OUT);
     }
 
+    // The owner answered the message, it just does not implement the probe
+    // method — that still proves its main loop is running.
+    _isAnswered(error) {
+        if (!(error instanceof Gio.DBusError))
+            return false;
+        return error.matches(Gio.DBusError, Gio.DBusError.UNKNOWN_METHOD) ||
+            error.matches(Gio.DBusError, Gio.DBusError.UNKNOWN_OBJECT) ||
+            error.matches(Gio.DBusError, Gio.DBusError.UNKNOWN_INTERFACE);
+    }
+
     _call(busName, objectPath, iface, method, params, timeoutMs) {
         return new Promise((resolve, reject) => {
+            // NO_AUTO_START: a probe must never spawn the thing it probes.
             Gio.DBus.session.call(busName, objectPath, iface, method, params,
-                null, Gio.DBusCallFlags.NONE, timeoutMs, null,
+                null, Gio.DBusCallFlags.NO_AUTO_START, timeoutMs, null,
                 (connection, res) => {
                     try {
                         resolve(connection.call_finish(res));

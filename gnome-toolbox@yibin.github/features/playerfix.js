@@ -4,8 +4,8 @@
 // shell, reports the state in the toolbox menu and kills the wedged process so
 // the next launch starts fresh.
 //
-// Probe/kill logic lives in core/playerguard.js (shell-independent, testable
-// with `gjs -m`); this file is only the UI, timers and settings wiring.
+// Probe/kill logic lives in core/playerguard.js (shell-independent, covered by
+// scripts/test-playerguard.sh); this file is only the UI, timers and settings.
 
 import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
@@ -21,13 +21,13 @@ import {PlayerGuard, ProbeState} from '../core/playerguard.js';
 
 // One entry per guarded app; adding another player means adding a row here.
 // Only apps that (a) busy-name themselves as a D-Bus singleton and (b) answer
-// org.freedesktop.DBus.Peer.Ping from the GLib main loop qualify.
+// the LIVENESS probe in core/playerguard.js from their main loop qualify.
 const GUARDED_PLAYERS = [
     {busName: 'org.gnome.Showtime', label: '视频播放器'},
 ];
 
 const PING_TIMEOUT_MS = 3000;
-// Consecutive unanswered pings before the automatic path kills the process.
+// Consecutive unanswered probes before the automatic path kills the process.
 // A wedged process fails every probe; a merely busy one recovers in between.
 const AUTO_STRIKES = 3;
 // Let a freshly appeared app finish preroll before the first probe.

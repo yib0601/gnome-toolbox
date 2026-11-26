@@ -25,7 +25,7 @@ core/
   settings.js           gsettings 单例（原 settingsManager.js）
   logger.js             结构化日志
   input.js              共享虚拟键盘 / keymap 获取（防 use-after-free）
-  playerguard.js        播放器 D-Bus 存活探测 / 结束僵死进程（无 shell 依赖，可 gjs -m 单测）
+  playerguard.js        播放器 D-Bus 存活探测 / 结束僵死进程（无 shell 依赖，scripts/test-playerguard.sh 覆盖）
 features/               自研功能，一文件一 Feature
   vitals.js             VitalsSampler 采样 + 顶栏/菜单展示
   lockkeys.js           Num/Caps Lock 监听与 OSD 提示
@@ -40,6 +40,8 @@ tray/                   移植子系统（与上游 appindicator 结构一一对
   interfaces-xml/       DBus 接口定义
   tools/busAnalyzer.js  独立调试脚本（gjs 运行）
 schemas/                GSettings schema
+scripts/
+  test-playerguard.sh   播放器探测的夹具化自测（造 D-Bus 假进程，不依赖 Showtime）
 ```
 
 约定：`core/`、`features/` 为本项目代码，可自由演进；`tray/` 保持与上游
@@ -113,17 +115,22 @@ appindicator 可比对，仅允许 import 路径等机械改动，不掺入自�
 
 GNOME 视频播放器（Showtime 50，Fedora 45 自带）在启动播放时会偶发死锁：主线程等 GStreamer 的播放锁，流线程等主线程跑起来才肯放锁（上游 [GNOME/showtime#309](https://gitlab.gnome.org/GNOME/showtime/-/work_items/309)、[#299](https://gitlab.gnome.org/GNOME/showtime/-/work_items/299)）。僵死进程仍然持有 `org.gnome.Showtime` 这个 D-Bus 名字，而桌面图标是 `DBusActivatable=true`，于是之后每一次点击/双击视频都被投递给那个僵死单例 —— 无新窗口、无报错、0% CPU，表现就是「播放器打不开」。
 
-判据不能只看「名字被占用」，要看**主循环是否还应答**：`org.freedesktop.DBus.Peer.Ping` 由主循环处理，超时即卡死；然后取 `GetConnectionUnixProcessID` 的 pid，先 SIGTERM（主循环卡住也不影响默认动作生效），名字仍在再 SIGKILL，以「名字被释放」为成功判据。
+判据不能只看「名字被占用」，要看**主循环是否还应答**：`core/playerguard.js` 向持有该名字的进程发一次带超时的调用，超时即卡死。注意 `org.freedesktop.DBus.Peer.*`（Ping / GetMachineId）在这里不成立——GDBus 对「从消息总线调用线程发起的连接」由库自己应答 Peer 方法，卡死的进程照样秒回 `Ping`（实测：主循环被 `usleep` 堵死的 gjs 进程，Ping 耗时 0～2ms 返回成功）。因此探测点必须钉在应用自己实现的 path/interface/method 上（`LIVENESS` 常量），默认值仍是 Peer.Ping，目标方法确认前 `hung` 不会触发。
+
+判定为卡死后的处置：`GetConnectionUnixProcessID` 取 pid，先 SIGTERM（主循环卡住也不影响默认动作生效），名字仍在再 SIGKILL，以「名字被释放」为成功判据。
 
 菜单里「视频播放器」一行显示状态（正常 / 无响应 / 未运行），点它立即检查一次并按需清理；自动守护在播放器运行期间每 `player-watch-interval` 秒探测，连续 3 次无响应才动手，避免误杀启动慢或负载高的实例。配置项：`enable-player-fix`、`player-auto-fix`、`player-watch-interval`。
 
-探测/清理逻辑与 shell 无关，可脱离 shell 直接验证：
+探测/清理逻辑与 shell 无关，脱离 shell 直接验证：
 
 ```bash
-gjs -m -c 'import {PlayerGuard} from "./gnome-toolbox@yibin.github/core/playerguard.js";
-const g = new PlayerGuard("org.gnome.Showtime");
-g.probe(3000).then(r => { print(JSON.stringify(r)); });'
+./scripts/test-playerguard.sh                 # 跑 absent / healthy / hung 三个用例
+./scripts/test-playerguard.sh org.gnome.Showtime
 ```
+
+脚本自己造临时 D-Bus 夹具（占名 + 主循环、占名 + 主循环被堵死），不需要装 Showtime。低于基线时退出码非 0：当前 `hung` 用例就是红的，直到 `LIVENESS` 换成 Showtime 自己实现的方法。
+
+两个 gjs 坑（脚本里已绕开，手搓时别踩）：`gjs -m` 与 `-c` 互斥，写 `gjs -m -c '...'` 只会得到 `Failed to parse module <command line>`；`import` 路径里含 `@` 的目录（`gnome-toolbox@yibin.github`）会被当成带 userinfo 的 URL，解析成 `%40`，报 `Module not found`——所以脚本先把模块拷到普通临时目录再跑。
 
 ## 启用
 
